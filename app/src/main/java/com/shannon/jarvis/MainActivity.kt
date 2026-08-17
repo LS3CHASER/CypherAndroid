@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,11 +25,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shannon.jarvis.ui.theme.JarvisTheme
+
 
 class MainActivity : ComponentActivity() {
 
@@ -41,7 +40,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             JarvisTheme {
-                JarvisHomeScreen()
+                CypherHomeScreen()
             }
         }
     }
@@ -49,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
 
 @Composable
-fun JarvisHomeScreen() {
+fun CypherHomeScreen() {
 
     val background = Color(0xFF050A0E)
     val panel = Color(0xFF0B151C)
@@ -72,7 +71,7 @@ fun JarvisHomeScreen() {
         ) {
 
             Text(
-                text = "J A R V I S",
+                text = "C Y P H E R",
                 color = accent,
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Light,
@@ -136,7 +135,7 @@ fun JarvisHomeScreen() {
                     ) {
 
                         Text(
-                            text = "J",
+                            text = "C",
                             color = accent,
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
@@ -307,9 +306,9 @@ fun StatusRow(
     backgroundColor = 0xFF050A0E,
 )
 @Composable
-fun JarvisHomeScreenPreview() {
+fun CypherHomeScreenPreview() {
 
     JarvisTheme {
-        JarvisHomeScreen()
+        CypherHomeScreen()
     }
 }
