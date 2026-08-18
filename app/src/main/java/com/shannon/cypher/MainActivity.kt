@@ -4,6 +4,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -21,23 +28,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shannon.cypher.ui.theme.CypherTheme
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
 
 
 class MainActivity : ComponentActivity() {
@@ -62,15 +67,17 @@ fun CypherHomeScreen() {
     val background = Color(0xFF070509)
     val panel = Color(0xFF110D16)
 
-// Joker-inspired colours
-    val accent = Color(0xFF8A2BE2)          // Electric purple
-    val secondaryAccent = Color(0xFF76FF03) // Acid green
+    // Joker-inspired colours
+    val accent = Color(0xFF8A2BE2)
+    val secondaryAccent = Color(0xFF76FF03)
 
     val secondaryText = Color(0xFFA99AAF)
+
     val infiniteTransition = rememberInfiniteTransition(
         label = "CypherCoreAnimation"
     )
 
+    // Slow breathing animation for the outer ring.
     val outerPulse by infiniteTransition.animateFloat(
         initialValue = 0.96f,
         targetValue = 1.04f,
@@ -84,6 +91,7 @@ fun CypherHomeScreen() {
         label = "OuterPulse",
     )
 
+    // Continuous rotation for the segmented HUD ring.
     val middleRotation by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -134,6 +142,7 @@ fun CypherHomeScreen() {
                 modifier = Modifier.height(56.dp)
             )
 
+            // Main Cypher core.
             Box(
                 modifier = Modifier
                     .size(190.dp)
@@ -146,20 +155,90 @@ fun CypherHomeScreen() {
                 contentAlignment = Alignment.Center,
             ) {
 
+                // Stationary container for the segmented ring
+                // and centre Cypher core.
                 Box(
-                    modifier = Modifier
-                        .size(130.dp)
-                        .rotate(middleRotation)
-                        .border(
-                            width = 1.dp,
-                            color = accent.copy(
-                                alpha = 0.65f
-                            ),
-                            shape = CircleShape,
-                        ),
+                    modifier = Modifier.size(130.dp),
                     contentAlignment = Alignment.Center,
                 ) {
 
+                    // Rotating segmented HUD ring.
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .rotate(middleRotation)
+                    ) {
+
+                        val strokeWidth = 3.dp.toPx()
+
+                        val arcSize = Size(
+                            width = size.width - strokeWidth,
+                            height = size.height - strokeWidth,
+                        )
+
+                        val topLeft = Offset(
+                            x = strokeWidth / 2,
+                            y = strokeWidth / 2,
+                        )
+
+                        // Purple segment 1
+                        drawArc(
+                            color = accent,
+                            startAngle = -90f,
+                            sweepAngle = 70f,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(
+                                width = strokeWidth,
+                                cap = StrokeCap.Round,
+                            ),
+                        )
+
+                        // Purple segment 2
+                        drawArc(
+                            color = accent,
+                            startAngle = 20f,
+                            sweepAngle = 85f,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(
+                                width = strokeWidth,
+                                cap = StrokeCap.Round,
+                            ),
+                        )
+
+                        // Green accent segment
+                        drawArc(
+                            color = secondaryAccent,
+                            startAngle = 145f,
+                            sweepAngle = 45f,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(
+                                width = strokeWidth,
+                                cap = StrokeCap.Round,
+                            ),
+                        )
+
+                        // Purple segment 3
+                        drawArc(
+                            color = accent,
+                            startAngle = 220f,
+                            sweepAngle = 95f,
+                            useCenter = false,
+                            topLeft = topLeft,
+                            size = arcSize,
+                            style = Stroke(
+                                width = strokeWidth,
+                                cap = StrokeCap.Round,
+                            ),
+                        )
+                    }
+
+                    // Stationary Cypher centre core.
                     Box(
                         modifier = Modifier
                             .size(72.dp)
@@ -302,7 +381,7 @@ fun CypherHomeScreen() {
 
                 Text(
                     text = "MIC",
-                    color = accent,
+                    color = secondaryAccent,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -346,7 +425,7 @@ fun StatusRow(
 
 @Preview(
     showBackground = true,
-    backgroundColor = 0xFF050A0E,
+    backgroundColor = 0xFF070509,
 )
 @Composable
 fun CypherHomeScreenPreview() {
