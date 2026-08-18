@@ -50,10 +50,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CypherHomeScreen() {
 
-    val background = Color(0xFF050A0E)
-    val panel = Color(0xFF0B151C)
-    val accent = Color(0xFF00D9FF)
-    val secondaryText = Color(0xFF8CA6B4)
+    val background = Color(0xFF070509)
+    val panel = Color(0xFF110D16)
+
+// Joker-inspired colours
+    val accent = Color(0xFF8A2BE2)          // Electric purple
+    val secondaryAccent = Color(0xFF76FF03) // Acid green
+
+    val secondaryText = Color(0xFFA99AAF)
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -136,7 +140,7 @@ fun CypherHomeScreen() {
 
                         Text(
                             text = "C",
-                            color = accent,
+                            color = secondaryAccent,
                             fontSize = 26.sp,
                             fontWeight = FontWeight.Bold,
                         )
@@ -220,7 +224,7 @@ fun CypherHomeScreen() {
                     StatusRow(
                         label = "STATUS",
                         value = "ONLINE",
-                        valueColor = accent,
+                        valueColor = secondaryAccent,
                     )
                 }
             }
