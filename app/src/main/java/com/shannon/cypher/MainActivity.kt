@@ -29,6 +29,15 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shannon.cypher.ui.theme.CypherTheme
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 
 
 class MainActivity : ComponentActivity() {
@@ -58,6 +67,34 @@ fun CypherHomeScreen() {
     val secondaryAccent = Color(0xFF76FF03) // Acid green
 
     val secondaryText = Color(0xFFA99AAF)
+    val infiniteTransition = rememberInfiniteTransition(
+        label = "CypherCoreAnimation"
+    )
+
+    val outerPulse by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 1800,
+                easing = FastOutSlowInEasing,
+            ),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "OuterPulse",
+    )
+
+    val middleRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = 9000,
+            ),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "MiddleRotation",
+    )
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -100,6 +137,7 @@ fun CypherHomeScreen() {
             Box(
                 modifier = Modifier
                     .size(190.dp)
+                    .scale(outerPulse)
                     .border(
                         width = 2.dp,
                         color = accent,
@@ -111,6 +149,7 @@ fun CypherHomeScreen() {
                 Box(
                     modifier = Modifier
                         .size(130.dp)
+                        .rotate(middleRotation)
                         .border(
                             width = 1.dp,
                             color = accent.copy(
