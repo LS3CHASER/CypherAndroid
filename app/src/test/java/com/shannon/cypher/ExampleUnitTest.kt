@@ -1,4 +1,4 @@
-package com.shannon.jarvis
+package com.shannon.cypher
 
 import org.junit.Test
 

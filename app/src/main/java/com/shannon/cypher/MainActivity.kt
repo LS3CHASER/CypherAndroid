@@ -1,4 +1,4 @@
-package com.shannon.jarvis
+package com.shannon.cypher
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,7 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.shannon.jarvis.ui.theme.JarvisTheme
+import com.shannon.cypher.ui.theme.CypherTheme
 
 
 class MainActivity : ComponentActivity() {
@@ -39,7 +39,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            JarvisTheme {
+            CypherTheme {
                 CypherHomeScreen()
             }
         }
@@ -308,7 +308,7 @@ fun StatusRow(
 @Composable
 fun CypherHomeScreenPreview() {
 
-    JarvisTheme {
+    CypherTheme {
         CypherHomeScreen()
     }
 }
