@@ -43,6 +43,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shannon.cypher.ui.theme.CypherTheme
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 
 
 class MainActivity : ComponentActivity() {
@@ -145,7 +147,7 @@ fun CypherHomeScreen() {
             // Main Cypher core.
             Box(
                 modifier = Modifier
-                    .size(190.dp)
+                    .size(220.dp)
                     .scale(outerPulse)
                     .border(
                         width = 2.dp,
@@ -158,7 +160,7 @@ fun CypherHomeScreen() {
                 // Stationary container for the segmented ring
                 // and centre Cypher core.
                 Box(
-                    modifier = Modifier.size(130.dp),
+                    modifier = Modifier.size(160.dp),
                     contentAlignment = Alignment.Center,
                 ) {
 
@@ -239,30 +241,14 @@ fun CypherHomeScreen() {
                     }
 
                     // Stationary Cypher centre core.
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .background(
-                                color = accent.copy(
-                                    alpha = 0.12f
-                                ),
-                                shape = CircleShape,
-                            )
-                            .border(
-                                width = 1.dp,
-                                color = accent,
-                                shape = CircleShape,
+                    Image(
+                            painter = painterResource(
+                                id = R.drawable.cypher_head
                             ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-
-                        Text(
-                            text = "C",
-                            color = secondaryAccent,
-                            fontSize = 26.sp,
-                            fontWeight = FontWeight.Bold,
+                            contentDescription = "Cypher",
+                            modifier = Modifier.size(105.dp),
                         )
-                    }
+
                 }
             }
 
