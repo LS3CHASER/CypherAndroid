@@ -50,6 +50,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import java.util.Calendar
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 
 class MainActivity : ComponentActivity() {
@@ -83,6 +89,16 @@ fun CypherHomeScreen() {
     var isListening by remember {
         mutableStateOf(false)
     }
+
+    val context = LocalContext.current
+
+    val microphonePermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+
+            isListening = granted
+        }
 
     val currentHour = Calendar
         .getInstance()
@@ -375,7 +391,30 @@ fun CypherHomeScreen() {
                 modifier = Modifier
                     .size(76.dp)
                     .clickable {
-                        isListening = !isListening
+
+                        if (isListening) {
+
+                            isListening = false
+
+                        } else {
+
+                            val permissionGranted =
+                                ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+
+                            if (permissionGranted) {
+
+                                isListening = true
+
+                            } else {
+
+                                microphonePermissionLauncher.launch(
+                                    Manifest.permission.RECORD_AUDIO
+                                )
+                            }
+                        }
                     }
                     .background(
                         color = accent.copy(
