@@ -45,6 +45,11 @@ import androidx.compose.ui.unit.sp
 import com.shannon.cypher.ui.theme.CypherTheme
 import androidx.compose.foundation.Image
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import java.util.Calendar
 
 
 class MainActivity : ComponentActivity() {
@@ -75,17 +80,31 @@ fun CypherHomeScreen() {
 
     val secondaryText = Color(0xFFA99AAF)
 
+    var isListening by remember {
+        mutableStateOf(false)
+    }
+
+    val currentHour = Calendar
+        .getInstance()
+        .get(Calendar.HOUR_OF_DAY)
+
+    val greeting = when (currentHour) {
+        in 5..11 -> "Good morning, Shannon."
+        in 12..16 -> "Good afternoon, Shannon."
+        else -> "Good evening, Shannon."
+    }
+
     val infiniteTransition = rememberInfiniteTransition(
         label = "CypherCoreAnimation"
     )
 
     // Slow breathing animation for the outer ring.
     val outerPulse by infiniteTransition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
+        initialValue = if (isListening) 0.94f else 0.96f,
+        targetValue = if (isListening) 1.08f else 1.04f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = 1800,
+                durationMillis = if (isListening) 650 else 1800,
                 easing = FastOutSlowInEasing,
             ),
             repeatMode = RepeatMode.Reverse,
@@ -99,7 +118,7 @@ fun CypherHomeScreen() {
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = 9000,
+                durationMillis = if (isListening) 3000 else 9000,
             ),
             repeatMode = RepeatMode.Restart,
         ),
@@ -134,8 +153,8 @@ fun CypherHomeScreen() {
             )
 
             Text(
-                text = "SYSTEM ONLINE",
-                color = secondaryText,
+                text = if (isListening) "LISTENING" else "SYSTEM ONLINE",
+                color = if (isListening) secondaryAccent else secondaryText,
                 fontSize = 12.sp,
                 letterSpacing = 3.sp,
             )
@@ -151,7 +170,7 @@ fun CypherHomeScreen() {
                     .scale(outerPulse)
                     .border(
                         width = 2.dp,
-                        color = accent,
+                        color = if (isListening) secondaryAccent else accent,
                         shape = CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
@@ -257,7 +276,7 @@ fun CypherHomeScreen() {
             )
 
             Text(
-                text = "Good evening, Shannon.",
+                text = greeting,
                 color = Color.White,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Medium,
@@ -268,8 +287,12 @@ fun CypherHomeScreen() {
             )
 
             Text(
-                text = "Awaiting your command.",
-                color = secondaryText,
+                text = if (isListening) {
+                    "I'm listening..."
+                } else {
+                    "Awaiting your command."
+                },
+                color = if (isListening) secondaryAccent else secondaryText,
                 fontSize = 14.sp,
             )
 
@@ -351,6 +374,9 @@ fun CypherHomeScreen() {
             Box(
                 modifier = Modifier
                     .size(76.dp)
+                    .clickable {
+                        isListening = !isListening
+                    }
                     .background(
                         color = accent.copy(
                             alpha = 0.12f
@@ -358,15 +384,15 @@ fun CypherHomeScreen() {
                         shape = CircleShape,
                     )
                     .border(
-                        width = 1.dp,
-                        color = accent,
+                        width = if (isListening) 2.dp else 1.dp,
+                        color = if (isListening) secondaryAccent else accent,
                         shape = CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
 
                 Text(
-                    text = "MIC",
+                    text = if (isListening) "STOP" else "MIC",
                     color = secondaryAccent,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
