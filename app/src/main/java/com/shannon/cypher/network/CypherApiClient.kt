@@ -1,7 +1,7 @@
 package com.shannon.cypher.network
 
 import org.json.JSONObject
-import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -11,7 +11,7 @@ class CypherApiClient {
     companion object {
 
         private const val BASE_URL =
-            "http://192.168.1.26:8000"
+            "https://cypheros-yr05.onrender.com"
     }
 
 
@@ -20,9 +20,7 @@ class CypherApiClient {
     ): String {
 
         val url =
-            URL(
-                "$BASE_URL/message"
-            )
+            URL("$BASE_URL/message")
 
         val connection =
             url.openConnection()
@@ -66,10 +64,9 @@ class CypherApiClient {
                     outputStream ->
 
                 outputStream.write(
-                    requestBody
-                        .toByteArray(
-                            Charsets.UTF_8
-                        )
+                    requestBody.toByteArray(
+                        Charsets.UTF_8
+                    )
                 )
             }
 
@@ -84,7 +81,8 @@ class CypherApiClient {
             ) {
 
                 throw RuntimeException(
-                    "CypherOS returned HTTP $responseCode"
+                    "CypherOS returned HTTP " +
+                            responseCode
                 )
             }
 
@@ -97,16 +95,11 @@ class CypherApiClient {
                     }
 
 
-            val responseJson =
-                JSONObject(
-                    responseText
-                )
-
-
-            return responseJson
-                .getString(
-                    "reply"
-                )
+            return JSONObject(
+                responseText
+            ).getString(
+                "reply"
+            )
 
         } finally {
 
@@ -115,102 +108,102 @@ class CypherApiClient {
     }
 
 
-    fun downloadSpeech(
+    fun openSpeechStream(
         text: String,
-        destinationFile: File,
-    ): File {
+    ): SpeechStream {
 
         val url =
-            URL(
-                "$BASE_URL/speak"
-            )
+            URL("$BASE_URL/speak")
 
         val connection =
             url.openConnection()
                     as HttpURLConnection
 
+
+        connection.requestMethod =
+            "POST"
+
+        connection.connectTimeout =
+            10_000
+
+        connection.readTimeout =
+            60_000
+
+        connection.doOutput =
+            true
+
+
+        connection.setRequestProperty(
+            "Content-Type",
+            "application/json",
+        )
+
+        connection.setRequestProperty(
+            "Accept",
+            "audio/pcm",
+        )
+
+
+        val requestBody =
+            JSONObject()
+                .put(
+                    "text",
+                    text,
+                )
+                .toString()
+
+
+        connection.outputStream.use {
+                outputStream ->
+
+            outputStream.write(
+                requestBody.toByteArray(
+                    Charsets.UTF_8
+                )
+            )
+        }
+
+
+        val responseCode =
+            connection.responseCode
+
+
+        if (
+            responseCode !in
+            200..299
+        ) {
+
+            connection.disconnect()
+
+            throw RuntimeException(
+                "CypherOS speech endpoint " +
+                        "returned HTTP $responseCode"
+            )
+        }
+
+
+        return SpeechStream(
+            inputStream =
+                connection.inputStream,
+
+            connection =
+                connection,
+        )
+    }
+}
+
+
+class SpeechStream(
+    val inputStream: InputStream,
+    private val connection:
+    HttpURLConnection,
+) {
+
+    fun close() {
+
         try {
 
-            connection.requestMethod =
-                "POST"
-
-            connection.connectTimeout =
-                10_000
-
-            connection.readTimeout =
-                60_000
-
-            connection.doOutput =
-                true
-
-            connection.setRequestProperty(
-                "Content-Type",
-                "application/json",
-            )
-
-            connection.setRequestProperty(
-                "Accept",
-                "audio/mpeg",
-            )
-
-
-            val requestBody =
-                JSONObject()
-                    .put(
-                        "text",
-                        text,
-                    )
-                    .toString()
-
-
-            connection.outputStream.use {
-                    outputStream ->
-
-                outputStream.write(
-                    requestBody
-                        .toByteArray(
-                            Charsets.UTF_8
-                        )
-                )
-            }
-
-
-            val responseCode =
-                connection.responseCode
-
-
-            if (
-                responseCode !in
-                200..299
-            ) {
-
-                throw RuntimeException(
-                    "CypherOS speech endpoint returned HTTP $responseCode"
-                )
-            }
-
-
-            destinationFile
-                .parentFile
-                ?.mkdirs()
-
-
-            connection.inputStream.use {
-                    inputStream ->
-
-                destinationFile
-                    .outputStream()
-                    .use {
-                            fileOutput ->
-
-                        inputStream.copyTo(
-                            fileOutput
-                        )
-                    }
-            }
-
-
-            return destinationFile
+            inputStream.close()
 
         } finally {
 
