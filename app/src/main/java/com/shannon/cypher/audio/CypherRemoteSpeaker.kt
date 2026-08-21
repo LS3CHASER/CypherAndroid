@@ -5,8 +5,10 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import com.shannon.cypher.network.CypherApiClient
+import com.shannon.cypher.network.SpeechStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
 
 
 class CypherRemoteSpeaker(
@@ -42,7 +44,6 @@ class CypherRemoteSpeaker(
 
         stop()
 
-
         stopRequested =
             false
 
@@ -52,8 +53,7 @@ class CypherRemoteSpeaker(
         ) {
 
             var speechStream:
-                    com.shannon.cypher.network
-                    .SpeechStream? = null
+                    SpeechStream? = null
 
             var track:
                     AudioTrack? = null
@@ -64,6 +64,13 @@ class CypherRemoteSpeaker(
                 speechStream =
                     apiClient.openSpeechStream(
                         text
+                    )
+
+
+                val input =
+                    BufferedInputStream(
+                        speechStream.inputStream,
+                        32_768,
                     )
 
 
@@ -85,10 +92,10 @@ class CypherRemoteSpeaker(
                     )
 
 
-                val bufferSize =
+                val audioTrackBufferSize =
                     maxOf(
-                        minimumBufferSize,
-                        8192,
+                        minimumBufferSize * 4,
+                        32_768,
                     )
 
 
@@ -122,7 +129,7 @@ class CypherRemoteSpeaker(
                                 .build()
                         )
                         .setBufferSizeInBytes(
-                            bufferSize
+                            audioTrackBufferSize
                         )
                         .setTransferMode(
                             AudioTrack.MODE_STREAM
@@ -134,14 +141,114 @@ class CypherRemoteSpeaker(
                     track
 
 
-                val buffer =
+                val preBufferTarget =
+                    16_384
+
+
+                val preBuffer =
                     ByteArray(
-                        4096
+                        preBufferTarget
                     )
 
 
-                var started =
-                    false
+                var preBufferBytes =
+                    0
+
+
+                while (
+                    preBufferBytes <
+                    preBuffer.size &&
+                    !stopRequested
+                ) {
+
+                    val bytesRead =
+                        input.read(
+                            preBuffer,
+                            preBufferBytes,
+                            preBuffer.size -
+                                    preBufferBytes,
+                        )
+
+
+                    if (
+                        bytesRead == -1
+                    ) {
+                        break
+                    }
+
+
+                    preBufferBytes +=
+                        bytesRead
+                }
+
+
+                if (
+                    stopRequested ||
+                    preBufferBytes <= 0
+                ) {
+
+                    return@withContext
+                }
+
+
+                var leftoverByte:
+                        Byte? = null
+
+
+                var initialBytes =
+                    preBufferBytes
+
+
+                if (
+                    initialBytes % 2 != 0
+                ) {
+
+                    leftoverByte =
+                        preBuffer[
+                            initialBytes - 1
+                        ]
+
+                    initialBytes -= 1
+                }
+
+
+                track.play()
+
+
+                withContext(
+                    Dispatchers.Main
+                ) {
+
+                    onStart()
+                }
+
+
+                if (
+                    initialBytes > 0
+                ) {
+
+                    writeFully(
+                        track = track,
+                        buffer = preBuffer,
+                        length = initialBytes,
+                    )
+                }
+
+
+                val networkBuffer =
+                    ByteArray(
+                        8_192
+                    )
+
+
+                val playbackBuffer =
+                    ByteArray(
+                        8_194
+                    )
+
+
+                var totalBytesWritten =
+                    initialBytes.toLong()
 
 
                 while (
@@ -149,11 +256,9 @@ class CypherRemoteSpeaker(
                 ) {
 
                     val bytesRead =
-                        speechStream
-                            .inputStream
-                            .read(
-                                buffer
-                            )
+                        input.read(
+                            networkBuffer
+                        )
 
 
                     if (
@@ -164,57 +269,135 @@ class CypherRemoteSpeaker(
 
 
                     if (
-                        bytesRead > 0
+                        bytesRead <= 0
+                    ) {
+                        continue
+                    }
+
+
+                    var playbackBytes =
+                        0
+
+
+                    if (
+                        leftoverByte != null
                     ) {
 
-                        if (
-                            !started
-                        ) {
+                        playbackBuffer[0] =
+                            leftoverByte
 
-                            track.play()
+                        System.arraycopy(
+                            networkBuffer,
+                            0,
+                            playbackBuffer,
+                            1,
+                            bytesRead,
+                        )
 
-                            started =
-                                true
+                        playbackBytes =
+                            bytesRead + 1
 
+                        leftoverByte =
+                            null
 
-                            withContext(
-                                Dispatchers.Main
-                            ) {
+                    } else {
 
-                                onStart()
-                            }
-                        }
-
-
-                        track.write(
-                            buffer,
+                        System.arraycopy(
+                            networkBuffer,
+                            0,
+                            playbackBuffer,
                             0,
                             bytesRead,
-                            AudioTrack.WRITE_BLOCKING,
                         )
+
+                        playbackBytes =
+                            bytesRead
+                    }
+
+
+                    if (
+                        playbackBytes % 2 != 0
+                    ) {
+
+                        leftoverByte =
+                            playbackBuffer[
+                                playbackBytes - 1
+                            ]
+
+                        playbackBytes -= 1
+                    }
+
+
+                    if (
+                        playbackBytes > 0
+                    ) {
+
+                        writeFully(
+                            track = track,
+                            buffer = playbackBuffer,
+                            length = playbackBytes,
+                        )
+
+                        totalBytesWritten +=
+                            playbackBytes
                     }
                 }
 
 
-                if (
-                    started &&
-                    !stopRequested
+                /*
+                 * PCM16 mono:
+                 * 2 bytes = 1 sample/frame.
+                 */
+                val totalFramesWritten =
+                    totalBytesWritten / 2L
+
+
+                /*
+                 * Wait until AudioTrack has actually
+                 * played every frame we queued.
+                 */
+                while (
+                    !stopRequested &&
+                    track.playState ==
+                    AudioTrack.PLAYSTATE_PLAYING
                 ) {
 
-                    try {
+                    val playedFrames =
+                        track.playbackHeadPosition
+                            .toLong() and
+                                0xFFFFFFFFL
 
-                        track.stop()
 
-                    } catch (
-                        _: IllegalStateException
+                    if (
+                        playedFrames >=
+                        totalFramesWritten
                     ) {
+
+                        break
                     }
+
+
+                    Thread.sleep(
+                        20
+                    )
                 }
+
 
             } finally {
 
                 speechStream
                     ?.close()
+
+
+                try {
+
+                    track
+                        ?.stop()
+
+                } catch (
+                    _: IllegalStateException
+                ) {
+                }
 
 
                 try {
@@ -244,6 +427,43 @@ class CypherRemoteSpeaker(
                     onDone()
                 }
             }
+        }
+    }
+
+
+    private fun writeFully(
+        track: AudioTrack,
+        buffer: ByteArray,
+        length: Int,
+    ) {
+
+        var offset =
+            0
+
+
+        while (
+            offset < length &&
+            !stopRequested
+        ) {
+
+            val written =
+                track.write(
+                    buffer,
+                    offset,
+                    length - offset,
+                    AudioTrack.WRITE_BLOCKING,
+                )
+
+
+            if (
+                written <= 0
+            ) {
+                break
+            }
+
+
+            offset +=
+                written
         }
     }
 
