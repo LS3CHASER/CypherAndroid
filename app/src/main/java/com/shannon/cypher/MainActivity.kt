@@ -56,7 +56,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import androidx.compose.runtime.DisposableEffect
+import kotlin.math.sqrt
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.ui.graphics.Path
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
 
@@ -90,6 +99,10 @@ fun CypherHomeScreen() {
         mutableStateOf(false)
     }
 
+    var microphoneLevel by remember {
+        mutableStateOf(0f)
+    }
+
     val context = LocalContext.current
 
     val microphonePermissionLauncher =
@@ -99,6 +112,107 @@ fun CypherHomeScreen() {
 
             isListening = granted
         }
+    DisposableEffect(isListening) {
+
+        var audioRecord: AudioRecord? = null
+
+        var keepRecording = true
+
+        val mainHandler = Handler(
+            Looper.getMainLooper()
+        )
+
+        var recordingThread: Thread? = null
+
+        if (isListening) {
+
+            val sampleRate = 16000
+
+            val bufferSize = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+            )
+
+            if (bufferSize > 0) {
+
+                audioRecord = AudioRecord(
+                    MediaRecorder.AudioSource.MIC,
+                    sampleRate,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufferSize,
+                )
+
+                audioRecord?.startRecording()
+
+                recordingThread = Thread {
+
+                    val buffer = ShortArray(
+                        bufferSize
+                    )
+
+                    while (keepRecording) {
+
+                        val samplesRead =
+                            audioRecord?.read(
+                                buffer,
+                                0,
+                                buffer.size,
+                            ) ?: 0
+
+                        if (samplesRead > 0) {
+
+                            var sum = 0.0
+
+                            for (index in 0 until samplesRead) {
+
+                                val sample =
+                                    buffer[index].toDouble()
+
+                                sum += sample * sample
+                            }
+
+                            val rms = sqrt(
+                                sum / samplesRead
+                            )
+
+                            val normalisedLevel =
+                                (rms / 6000.0)
+                                    .coerceIn(
+                                        0.0,
+                                        1.0,
+                                    )
+                                    .toFloat()
+
+                            mainHandler.post {
+                                microphoneLevel =
+                                    normalisedLevel
+                            }
+                        }
+                    }
+                }
+
+                recordingThread?.start()
+            }
+        }
+
+        onDispose {
+
+            keepRecording = false
+
+            try {
+                audioRecord?.stop()
+            } catch (_: IllegalStateException) {
+            }
+
+            audioRecord?.release()
+
+            recordingThread?.interrupt()
+
+            microphoneLevel = 0f
+        }
+    }
 
     val currentHour = Calendar
         .getInstance()
@@ -115,17 +229,17 @@ fun CypherHomeScreen() {
     )
 
     // Slow breathing animation for the outer ring.
-    val outerPulse by infiniteTransition.animateFloat(
-        initialValue = if (isListening) 0.94f else 0.96f,
-        targetValue = if (isListening) 1.08f else 1.04f,
+    val idlePulse by infiniteTransition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (isListening) 650 else 1800,
+                durationMillis = 1800,
                 easing = FastOutSlowInEasing,
             ),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "OuterPulse",
+        label = "IdlePulse",
     )
 
     // Continuous rotation for the segmented HUD ring.
@@ -183,14 +297,74 @@ fun CypherHomeScreen() {
             Box(
                 modifier = Modifier
                     .size(220.dp)
-                    .scale(outerPulse)
-                    .border(
-                        width = 2.dp,
-                        color = if (isListening) secondaryAccent else accent,
-                        shape = CircleShape,
+                    .scale(
+                        if (isListening) 1.0f else idlePulse
                     ),
                 contentAlignment = Alignment.Center,
             ) {
+
+                Canvas(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+
+                    val centerX = size.width / 2f
+                    val centerY = size.height / 2f
+
+                    val baseRadius =
+                        (size.minDimension / 2f) - 6.dp.toPx()
+
+                    val waveStrength = if (isListening) {
+                        microphoneLevel * 18.dp.toPx()
+                    } else {
+                        0f
+                    }
+
+                    val path = Path()
+
+                    val points = 180
+
+                    for (index in 0..points) {
+
+                        val angle =
+                            (index.toFloat() / points.toFloat()) *
+                                    (Math.PI * 2.0)
+
+                        val wave =
+                            sin(angle * 12.0).toFloat()
+
+                        val radius =
+                            baseRadius + (wave * waveStrength)
+
+                        val x =
+                            centerX +
+                                    cos(angle).toFloat() * radius
+
+                        val y =
+                            centerY +
+                                    sin(angle).toFloat() * radius
+
+                        if (index == 0) {
+                            path.moveTo(x, y)
+                        } else {
+                            path.lineTo(x, y)
+                        }
+                    }
+
+                    path.close()
+
+                    drawPath(
+                        path = path,
+                        color = if (isListening) {
+                            secondaryAccent
+                        } else {
+                            accent
+                        },
+                        style = Stroke(
+                            width = 2.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        ),
+                    )
+                }
 
                 // Stationary container for the segmented ring
                 // and centre Cypher core.
