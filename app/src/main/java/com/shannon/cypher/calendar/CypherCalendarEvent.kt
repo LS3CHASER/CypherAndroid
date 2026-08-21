@@ -9,4 +9,3 @@ data class CypherCalendarEvent(
     val allDay: Boolean,
     val calendarName: String,
 )
-

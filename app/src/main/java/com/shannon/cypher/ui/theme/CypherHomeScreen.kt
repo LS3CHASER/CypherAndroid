@@ -23,10 +23,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,6 +61,7 @@ import com.shannon.cypher.R
 import com.shannon.cypher.audio.CypherRemoteSpeaker
 import com.shannon.cypher.audio.CypherSpeaker
 import com.shannon.cypher.audio.CypherSpeechRecognizer
+import com.shannon.cypher.calendar.CypherCalendarDateParser
 import com.shannon.cypher.calendar.CypherCalendarEvent
 import com.shannon.cypher.calendar.CypherCalendarManager
 import com.shannon.cypher.identity.CypherNameNormalizer
@@ -79,593 +83,282 @@ private data class CalendarCreateRequest(
     val endTimeMillis: Long,
     val confirmationDay: String,
     val confirmationTime: String,
+    val reminderMinutes: Int? = null,
 )
 
 
 @Composable
 fun CypherHomeScreen() {
 
-    val background =
-        Color(0xFF070509)
+    val background = Color(0xFF070509)
+    val panel = Color(0xFF110D16)
+    val accent = Color(0xFF8A2BE2)
+    val secondaryAccent = Color(0xFF76FF03)
+    val secondaryText = Color(0xFFA99AAF)
 
-    val panel =
-        Color(0xFF110D16)
+    val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
+    val coroutineScope = rememberCoroutineScope()
 
-    val accent =
-        Color(0xFF8A2BE2)
+    var isListening by remember { mutableStateOf(false) }
+    var isThinking by remember { mutableStateOf(false) }
+    var isSpeaking by remember { mutableStateOf(false) }
+    var microphoneLevel by remember { mutableStateOf(0f) }
+    var recognizedText by remember { mutableStateOf("") }
+    var cypherReply by remember { mutableStateOf("") }
 
-    val secondaryAccent =
-        Color(0xFF76FF03)
-
-    val secondaryText =
-        Color(0xFFA99AAF)
-
-
-    val context =
-        LocalContext.current
-
-    val isPreview =
-        LocalInspectionMode.current
-
-    val coroutineScope =
-        rememberCoroutineScope()
-
-
-    var isListening by remember {
-        mutableStateOf(false)
-    }
-
-    var isThinking by remember {
-        mutableStateOf(false)
-    }
-
-    var isSpeaking by remember {
-        mutableStateOf(false)
-    }
-
-    var microphoneLevel by remember {
-        mutableStateOf(0f)
-    }
-
-    var recognizedText by remember {
-        mutableStateOf("")
-    }
-
-    var cypherReply by remember {
-        mutableStateOf("")
-    }
-
-
-    var pendingCalendarTarget by remember {
-        mutableStateOf("today")
-    }
-
-
+    var pendingCalendarTarget by remember { mutableStateOf("today") }
     var pendingCalendarCreateRequest by remember {
         mutableStateOf<CalendarCreateRequest?>(null)
     }
+    var lastCalendarEventStartMillis by remember { mutableStateOf<Long?>(null) }
+    var pendingDeleteEvent by remember { mutableStateOf<CypherCalendarEvent?>(null) }
 
-
-    /*
-     * Remembers the last upcoming calendar
-     * event Cypher told us about.
-     *
-     * This enables:
-     *
-     * "What's my next appointment?"
-     *
-     * followed by:
-     *
-     * "What's after that?"
-     */
-    var lastCalendarEventStartMillis by remember {
-        mutableStateOf<Long?>(null)
+    val speechRecognizer = remember {
+        if (isPreview) null else CypherSpeechRecognizer(context)
     }
 
+    val remoteSpeaker = remember {
+        if (isPreview) null else CypherRemoteSpeaker(context)
+    }
 
-    val speechRecognizer =
-        remember {
+    val fallbackSpeaker = remember {
+        if (isPreview) null else CypherSpeaker(context)
+    }
 
-            if (isPreview) {
+    val apiClient = remember { CypherApiClient() }
 
-                null
-
-            } else {
-
-                CypherSpeechRecognizer(
-                    context
-                )
-            }
-        }
-
-
-    val remoteSpeaker =
-        remember {
-
-            if (isPreview) {
-
-                null
-
-            } else {
-
-                CypherRemoteSpeaker(
-                    context
-                )
-            }
-        }
-
-
-    val fallbackSpeaker =
-        remember {
-
-            if (isPreview) {
-
-                null
-
-            } else {
-
-                CypherSpeaker(
-                    context
-                )
-            }
-        }
-
-
-    val apiClient =
-        remember {
-
-            CypherApiClient()
-        }
-
-
-    val calendarManager =
-        remember {
-
-            if (isPreview) {
-
-                null
-
-            } else {
-
-                CypherCalendarManager(
-                    context
-                )
-            }
-        }
-
+    val calendarManager = remember {
+        if (isPreview) null else CypherCalendarManager(context)
+    }
 
     DisposableEffect(Unit) {
-
         onDispose {
-
-            speechRecognizer
-                ?.destroy()
-
-            remoteSpeaker
-                ?.destroy()
-
-            fallbackSpeaker
-                ?.destroy()
+            speechRecognizer?.destroy()
+            remoteSpeaker?.destroy()
+            fallbackSpeaker?.destroy()
         }
     }
 
 
     fun stopSpeaking() {
-
-        remoteSpeaker
-            ?.stop()
-
-        fallbackSpeaker
-            ?.stop()
-
-        isSpeaking =
-            false
+        remoteSpeaker?.stop()
+        fallbackSpeaker?.stop()
+        isSpeaking = false
     }
 
 
-    fun speakReply(
-        reply: String,
-    ) {
-
-        if (
-            reply.isBlank()
-        ) {
-
-            return
-        }
-
+    fun speakReply(reply: String) {
+        if (reply.isBlank()) return
 
         coroutineScope.launch {
-
             try {
-
                 remoteSpeaker?.speak(
-
-                    text =
-                        reply,
-
-                    onStart = {
-
-                        isSpeaking =
-                            true
-                    },
-
-                    onDone = {
-
-                        isSpeaking =
-                            false
-                    },
+                    text = reply,
+                    onStart = { isSpeaking = true },
+                    onDone = { isSpeaking = false },
                 )
-
-            } catch (
-                error: Exception
-            ) {
-
+            } catch (_: Exception) {
                 fallbackSpeaker?.speak(
-
-                    text =
-                        reply,
-
-                    onStart = {
-
-                        isSpeaking =
-                            true
-                    },
-
-                    onDone = {
-
-                        isSpeaking =
-                            false
-                    },
+                    text = reply,
+                    onStart = { isSpeaking = true },
+                    onDone = { isSpeaking = false },
                 )
             }
         }
     }
 
 
-    fun weekdayNumber(
-        weekday: String,
-    ): Int? {
+    fun reply(text: String) {
+        cypherReply = text
+        speakReply(text)
+    }
 
-        return when (
-            weekday
-        ) {
 
-            "monday" ->
-                Calendar.MONDAY
+    fun hasReadCalendarPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CALENDAR,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
-            "tuesday" ->
-                Calendar.TUESDAY
 
-            "wednesday" ->
-                Calendar.WEDNESDAY
+    fun hasWriteCalendarPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CALENDAR,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
 
-            "thursday" ->
-                Calendar.THURSDAY
 
-            "friday" ->
-                Calendar.FRIDAY
-
-            "saturday" ->
-                Calendar.SATURDAY
-
-            "sunday" ->
-                Calendar.SUNDAY
-
-            else ->
-                null
+    fun weekdayNumber(weekday: String): Int? {
+        return when (weekday.lowercase()) {
+            "monday" -> Calendar.MONDAY
+            "tuesday" -> Calendar.TUESDAY
+            "wednesday" -> Calendar.WEDNESDAY
+            "thursday" -> Calendar.THURSDAY
+            "friday" -> Calendar.FRIDAY
+            "saturday" -> Calendar.SATURDAY
+            "sunday" -> Calendar.SUNDAY
+            else -> null
         }
     }
 
 
-    fun getCalendarTarget(
-        message: String,
-    ): String {
+    fun getRelativeCalendarDate(message: String): Calendar {
+        val lower = message.lowercase()
+        val result = Calendar.getInstance()
 
-        val lowerMessage =
-            message.lowercase()
-
-
-        if (
-            lowerMessage.contains(
-                "tomorrow"
-            )
-        ) {
-
-            return "tomorrow"
+        if ("tomorrow" in lower) {
+            result.add(Calendar.DAY_OF_YEAR, 1)
+            return result
         }
 
-
-        if (
-            lowerMessage.contains(
-                "today"
-            )
-        ) {
-
-            return "today"
+        if ("today" in lower) {
+            return result
         }
 
+        val weekdays = listOf(
+            "monday", "tuesday", "wednesday", "thursday",
+            "friday", "saturday", "sunday",
+        )
 
-        val weekdays =
-            listOf(
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-            )
-
-
-        for (
-        weekday in weekdays
-        ) {
-
-            if (
-                lowerMessage.contains(
-                    weekday
-                )
-            ) {
-
-                return weekday
-            }
+        val requested = weekdays.firstOrNull { it in lower }
+        if (requested != null) {
+            val requestedNumber = weekdayNumber(requested)!!
+            val currentNumber = result.get(Calendar.DAY_OF_WEEK)
+            var daysAhead = (requestedNumber - currentNumber + 7) % 7
+            if (daysAhead == 0) daysAhead = 7
+            result.add(Calendar.DAY_OF_YEAR, daysAhead)
         }
 
-
-        return "today"
+        return result
     }
 
 
-    fun isNextAfterThatRequest(
-        message: String,
-    ): Boolean {
-
-        val lowerMessage =
-            message
-                .lowercase()
-                .trim()
-
-
-        val phrases =
-            listOf(
-
-                "next appointment after that",
-
-                "next event after that",
-
-                "next meeting after that",
-
-                "what's after that",
-
-                "whats after that",
-
-                "what is after that",
-
-                "what's the one after that",
-
-                "whats the one after that",
-
-                "what is the one after that",
-
-                "what about the one after that",
-
-                "and after that",
-
-                "after that",
-
-                "next one",
-
-                "the next one",
-
-                "and the next one",
-            )
-
-
-        return phrases.any {
-                phrase ->
-
-            lowerMessage.contains(
-                phrase
-            )
-        }
+    fun getCalendarDate(message: String): Calendar {
+        return CypherCalendarDateParser.parseSpecificDate(message)
+            ?: getRelativeCalendarDate(message)
     }
 
 
-    fun isNextAppointmentRequest(
-        message: String,
-    ): Boolean {
-
-        val lowerMessage =
-            message.lowercase()
-
-
-        val phrases =
-            listOf(
-
-                "next appointment",
-
-                "next event",
-
-                "next meeting",
-
-                "next calendar event",
-
-                "what's my next appointment",
-
-                "whats my next appointment",
-
-                "what is my next appointment",
-
-                "what's my next event",
-
-                "whats my next event",
-
-                "what is my next event",
-
-                "what's next on my calendar",
-
-                "whats next on my calendar",
-
-                "what is next on my calendar",
-
-                "what have i got next",
-
-                "what do i have next",
-            )
-
-
-        return phrases.any {
-                phrase ->
-
-            lowerMessage.contains(
-                phrase
-            )
-        }
+    fun getCalendarDayRange(message: String): Pair<Long, Long> {
+        return CypherCalendarDateParser.dayRange(
+            getCalendarDate(message)
+        )
     }
 
 
-    fun isCalendarCreateRequest(
-        message: String,
-    ): Boolean {
-
-        val lowerMessage =
-            message.lowercase()
-
-
-        val creationWords =
-            listOf(
-                "add",
-                "create",
-                "put",
-                "schedule",
-                "book",
-                "make",
-                "set",
-            )
+    fun formatDate(date: Calendar): String {
+        return SimpleDateFormat(
+            "EEEE d MMMM",
+            Locale.getDefault(),
+        ).format(date.time)
+    }
 
 
-        val eventWords =
-            listOf(
-                "appointment",
-                "meeting",
-                "event",
-                "booking",
-            )
+    fun formatTime(timeMillis: Long): String {
+        return SimpleDateFormat(
+            "h:mm a",
+            Locale.getDefault(),
+        ).format(timeMillis)
+    }
 
 
-        val dayWords =
-            listOf(
-                "today",
-                "tomorrow",
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-            )
+    fun isNextAfterThatRequest(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        val phrases = listOf(
+            "next appointment after that",
+            "next event after that",
+            "next meeting after that",
+            "what's after that",
+            "whats after that",
+            "what is after that",
+            "what's the one after that",
+            "whats the one after that",
+            "what is the one after that",
+            "what about the one after that",
+            "and after that",
+            "after that",
+            "next one",
+            "the next one",
+            "and the next one",
+        )
+        return phrases.any { it in lower }
+    }
 
 
-        val readQuestionPhrases =
-            listOf(
-                "what's on",
-                "whats on",
-                "what is on",
-                "what have i got",
-                "what do i have",
-                "what am i doing",
-                "show me",
-                "tell me what's",
-                "tell me whats",
-                "do i have",
-            )
+    fun isNextAppointmentRequest(message: String): Boolean {
+        val lower = message.lowercase()
+        val phrases = listOf(
+            "next appointment",
+            "next event",
+            "next meeting",
+            "next calendar event",
+            "what's next on my calendar",
+            "whats next on my calendar",
+            "what is next on my calendar",
+            "what have i got next",
+            "what do i have next",
+        )
+        return phrases.any { it in lower }
+    }
 
 
-        val hasCreationWord =
-            creationWords.any {
-                    word ->
+    fun hasCalendarDateWords(message: String): Boolean {
+        val lower = message.lowercase()
+        val relative = listOf(
+            "today", "tomorrow", "monday", "tuesday", "wednesday",
+            "thursday", "friday", "saturday", "sunday",
+        ).any { it in lower }
 
-                Regex(
-                    "\\b${Regex.escape(word)}\\b"
-                ).containsMatchIn(
-                    lowerMessage
-                )
-            }
-
-
-        val hasEventWord =
-            eventWords.any {
-                    word ->
-
-                Regex(
-                    "\\b${Regex.escape(word)}\\b"
-                ).containsMatchIn(
-                    lowerMessage
-                )
-            }
+        return relative || CypherCalendarDateParser.containsSpecificDate(message)
+    }
 
 
-        val hasDay =
-            dayWords.any {
-                    day ->
-
-                lowerMessage.contains(
-                    day
-                )
-            }
-
-
-        val normalisedTimeText =
-            lowerMessage.replace(
-                ".",
-                ""
-            )
-
-
-        val hasTime =
-            Regex(
-                "\\b\\d{1,2}" +
-                        "(?::\\d{2})?" +
-                        "\\s*(am|pm)\\b",
-                RegexOption.IGNORE_CASE,
-            ).containsMatchIn(
-                normalisedTimeText
-            )
-
-
-        val soundsLikeReadQuestion =
-            readQuestionPhrases.any {
-                    phrase ->
-
-                lowerMessage.contains(
-                    phrase
-                )
-            }
-
-
-        if (
-            hasCreationWord &&
-            hasEventWord
-        ) {
-
-            return true
+    fun isCalendarCreateRequest(message: String): Boolean {
+        val lower = message.lowercase()
+        val creationWords = listOf(
+            "add", "create", "put", "schedule", "book", "make", "set",
+        )
+        val hasCreationWord = creationWords.any {
+            Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(lower)
         }
+        val hasTime = Regex(
+            "\\b\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)\\b",
+            RegexOption.IGNORE_CASE,
+        ).containsMatchIn(lower)
+
+        return hasCreationWord && hasCalendarDateWords(message) && hasTime
+    }
 
 
-        if (
-            hasEventWord &&
-            hasDay &&
-            hasTime &&
-            !soundsLikeReadQuestion
-        ) {
-
-            return true
-        }
+    fun isCalendarDeleteRequest(message: String): Boolean {
+        val lower = message.lowercase()
+        val deleteWords = listOf("delete", "remove", "cancel")
+        return deleteWords.any {
+            Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(lower)
+        } && hasCalendarDateWords(message)
+    }
 
 
-        return false
+    fun isCalendarEditRequest(message: String): Boolean {
+        val lower = message.lowercase()
+        val editWords = listOf("move", "change", "reschedule")
+        return editWords.any {
+            Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(lower)
+        } && hasCalendarDateWords(message)
+    }
+
+
+    fun isStandaloneReminderRequest(message: String): Boolean {
+        val lower = message.lowercase()
+        return (
+                ("remind me" in lower || "set a reminder" in lower || "add a reminder" in lower) &&
+                        "before" in lower &&
+                        hasCalendarDateWords(message) &&
+                        !isCalendarCreateRequest(message)
+                )
     }
 
 
@@ -674,1945 +367,1026 @@ fun CypherHomeScreen() {
     ): Boolean {
 
         val lowerMessage =
-            message.lowercase()
+            message
+                .lowercase()
+                .replace("?", "")
+                .trim()
 
+        if (isCalendarCreateRequest(message)) return false
+        if (isCalendarDeleteRequest(message)) return false
+        if (isCalendarEditRequest(message)) return false
+        if (isStandaloneReminderRequest(message)) return false
 
-        val readPhrases =
-            listOf(
-
-                "what's on my calendar",
-
-                "whats on my calendar",
-
-                "what is on my calendar",
-
-                "what have i got on",
-
-                "what do i have on",
-
-                "what am i doing",
-
-                "what's on today",
-
-                "whats on today",
-
-                "what is on today",
-
-                "what's on tomorrow",
-
-                "whats on tomorrow",
-
-                "what is on tomorrow",
-
-                "appointments today",
-
-                "appointments tomorrow",
-
-                "events today",
-
-                "events tomorrow",
-
-                "show me my calendar",
-
-                "tell me what's on my calendar",
-
-                "tell me whats on my calendar",
-            )
-
-
-        if (
-            readPhrases.any {
-                    phrase ->
-
-                lowerMessage.contains(
-                    phrase
+        val specificDate =
+            CypherCalendarDateParser
+                .parseSpecificDate(
+                    message
                 )
-            }
-        ) {
 
-            return true
+        if (specificDate != null) {
+
+            val specificDateReadPhrases =
+                listOf(
+                    "calendar",
+                    "appointment",
+                    "appointments",
+                    "meeting",
+                    "meetings",
+                    "event",
+                    "events",
+                    "schedule",
+                    "what's on",
+                    "whats on",
+                    "what is on",
+                    "anything on",
+                    "what do i have",
+                    "what have i got",
+                    "do i have",
+                    "have i got",
+                )
+
+            if (
+                specificDateReadPhrases.any { phrase ->
+                    lowerMessage.contains(phrase)
+                }
+            ) {
+                return true
+            }
         }
 
-
-        val weekdays =
+        val calendarWords =
             listOf(
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
+                "calendar",
+                "appointment",
+                "appointments",
+                "meeting",
+                "meetings",
+                "event",
+                "events",
+                "schedule",
+                "anything",
             )
 
-
-        val hasWeekday =
-            weekdays.any {
-                    day ->
-
-                lowerMessage.contains(
-                    day
-                )
-            }
-
-
-        val questionWords =
+        val readWords =
             listOf(
                 "what",
                 "what's",
                 "whats",
-                "have i",
+                "what is",
+                "what do i have",
+                "what have i got",
+                "have i got",
                 "do i have",
-                "am i doing",
+                "anything",
+                "what am i doing",
                 "show me",
                 "tell me",
             )
 
-
-        val looksLikeQuestion =
-            questionWords.any {
-                    phrase ->
-
-                lowerMessage.contains(
-                    phrase
-                )
+        val hasCalendarWord =
+            calendarWords.any { word ->
+                lowerMessage.contains(word)
             }
 
+        val hasReadIntent =
+            readWords.any { phrase ->
+                lowerMessage.contains(phrase)
+            }
 
         return (
-                hasWeekday &&
-                        looksLikeQuestion &&
-                        lowerMessage.contains(
-                            "calendar"
-                        )
-                )
-    }
-
-
-    fun getCalendarDayRange(
-        target: String,
-    ): Pair<Long, Long> {
-
-        val targetDay =
-            Calendar.getInstance()
-
-
-        when (
-            target
-        ) {
-
-            "tomorrow" -> {
-
-                targetDay.add(
-                    Calendar.DAY_OF_YEAR,
-                    1
-                )
-            }
-
-
-            "today" -> {
-            }
-
-
-            else -> {
-
-                val requestedWeekday =
-                    weekdayNumber(
-                        target
-                    )
-
-
-                if (
-                    requestedWeekday != null
-                ) {
-
-                    val currentWeekday =
-                        targetDay.get(
-                            Calendar.DAY_OF_WEEK
-                        )
-
-
-                    val daysAhead =
+                hasCalendarDateWords(message) &&
+                        hasReadIntent &&
                         (
-                                requestedWeekday -
-                                        currentWeekday +
-                                        7
-                                ) % 7
-
-
-                    if (
-                        daysAhead > 0
-                    ) {
-
-                        targetDay.add(
-                            Calendar.DAY_OF_YEAR,
-                            daysAhead,
-                        )
-                    }
-                }
-            }
-        }
-
-
-        val startOfDay =
-            targetDay.clone()
-                    as Calendar
-
-
-        startOfDay.set(
-            Calendar.HOUR_OF_DAY,
-            0
-        )
-
-        startOfDay.set(
-            Calendar.MINUTE,
-            0
-        )
-
-        startOfDay.set(
-            Calendar.SECOND,
-            0
-        )
-
-        startOfDay.set(
-            Calendar.MILLISECOND,
-            0
-        )
-
-
-        val endOfDay =
-            targetDay.clone()
-                    as Calendar
-
-
-        endOfDay.set(
-            Calendar.HOUR_OF_DAY,
-            23
-        )
-
-        endOfDay.set(
-            Calendar.MINUTE,
-            59
-        )
-
-        endOfDay.set(
-            Calendar.SECOND,
-            59
-        )
-
-        endOfDay.set(
-            Calendar.MILLISECOND,
-            999
-        )
-
-
-        return Pair(
-            startOfDay.timeInMillis,
-            endOfDay.timeInMillis,
-        )
-    }
-
-
-    fun calendarTargetDescription(
-        target: String,
-    ): String {
-
-        return when (
-            target
-        ) {
-
-            "today" ->
-                "today"
-
-            "tomorrow" ->
-                "tomorrow"
-
-            else ->
-
-                target.replaceFirstChar {
-
-                    if (
-                        it.isLowerCase()
-                    ) {
-
-                        it.titlecase(
-                            Locale.getDefault()
-                        )
-
-                    } else {
-
-                        it.toString()
-                    }
-                }
-        }
-    }
-
-
-    fun getEventsForCalendarTarget(
-        target: String,
-    ): List<CypherCalendarEvent> {
-
-        val manager =
-            calendarManager
-                ?: return emptyList()
-
-
-        return when (
-            target
-        ) {
-
-            "today" ->
-                manager.getTodayEvents()
-
-
-            "tomorrow" ->
-                manager.getTomorrowEvents()
-
-
-            else -> {
-
-                val range =
-                    getCalendarDayRange(
-                        target
-                    )
-
-
-                manager.getEventsBetween(
-                    startMillis =
-                        range.first,
-
-                    endMillis =
-                        range.second,
-                )
-            }
-        }
-    }
-
-
-    /*
-     * Search for the first upcoming event
-     * AFTER the supplied timestamp.
-     */
-    fun getNextCalendarEvent(
-        afterMillis: Long,
-    ): CypherCalendarEvent? {
-
-        val manager =
-            calendarManager
-                ?: return null
-
-
-        val searchEnd =
-            Calendar
-                .getInstance()
-                .apply {
-
-                    timeInMillis =
-                        afterMillis
-
-                    add(
-                        Calendar.YEAR,
-                        1
-                    )
-                }
-                .timeInMillis
-
-
-        return manager
-            .getEventsBetween(
-                startMillis =
-                    afterMillis + 1,
-
-                endMillis =
-                    searchEnd,
-            )
-            .firstOrNull {
-                    event ->
-
-                event.startTimeMillis >
-                        afterMillis
-            }
-    }
-
-
-    fun formatCalendarEvents(
-        events: List<CypherCalendarEvent>,
-        target: String,
-    ): String {
-
-        val description =
-            calendarTargetDescription(
-                target
-            )
-
-
-        if (
-            events.isEmpty()
-        ) {
-
-            return when (
-                target
-            ) {
-
-                "today" ->
-                    "You have nothing on your calendar today."
-
-                "tomorrow" ->
-                    "You have nothing on your calendar tomorrow."
-
-                else ->
-                    "You have nothing on your calendar for $description."
-            }
-        }
-
-
-        val timeFormat =
-            SimpleDateFormat(
-                "h:mm a",
-                Locale.getDefault(),
-            )
-
-
-        val eventDescriptions =
-            events.map {
-                    event ->
-
-                if (
-                    event.allDay
-                ) {
-
-                    event.title
-
-                } else {
-
-                    val startTime =
-                        timeFormat.format(
-                            event.startTimeMillis
-                        )
-
-
-                    "${event.title} at $startTime"
-                }
-            }
-
-
-        val count =
-            if (
-                events.size == 1
-            ) {
-
-                "one event"
-
-            } else {
-
-                "${events.size} events"
-            }
-
-
-        val intro =
-            when (
-                target
-            ) {
-
-                "today" ->
-                    "You have $count today."
-
-                "tomorrow" ->
-                    "You have $count tomorrow."
-
-                else ->
-                    "You have $count on $description."
-            }
-
-
-        return (
-                intro +
-                        " " +
-                        eventDescriptions.joinToString(
-                            separator = ", "
-                        ) +
-                        "."
-                )
-    }
-
-
-    fun readCalendar(
-        target: String,
-    ) {
-
-        val events =
-            getEventsForCalendarTarget(
-                target
-            )
-
-
-        val reply =
-            formatCalendarEvents(
-                events =
-                    events,
-
-                target =
-                    target,
-            )
-
-
-        cypherReply =
-            reply
-
-
-        speakReply(
-            reply
-        )
-    }
-
-
-    /*
-     * Speak an upcoming event and
-     * remember it for "after that".
-     */
-    fun speakUpcomingEvent(
-        event: CypherCalendarEvent?,
-        isFollowUp: Boolean,
-    ) {
-
-        val reply =
-            if (
-                event == null
-            ) {
-
-                if (
-                    isFollowUp
-                ) {
-
-                    "You have no later appointments on your calendar."
-
-                } else {
-
-                    "You have no upcoming appointments."
-                }
-
-            } else {
-
-                lastCalendarEventStartMillis =
-                    event.startTimeMillis
-
-
-                val dateFormat =
-                    SimpleDateFormat(
-                        "EEEE d MMMM",
-                        Locale.getDefault(),
-                    )
-
-
-                val date =
-                    dateFormat.format(
-                        event.startTimeMillis
-                    )
-
-
-                if (
-                    event.allDay
-                ) {
-
-                    if (
-                        isFollowUp
-                    ) {
-
-                        (
-                                "After that, your next event is " +
-                                        "${event.title} on $date."
+                                hasCalendarWord ||
+                                        specificDate != null
                                 )
-
-                    } else {
-
-                        (
-                                "Your next event is " +
-                                        "${event.title} on $date."
-                                )
-                    }
-
-                } else {
-
-                    val timeFormat =
-                        SimpleDateFormat(
-                            "h:mm a",
-                            Locale.getDefault(),
-                        )
+                )
+    }
 
 
-                    val time =
-                        timeFormat.format(
-                            event.startTimeMillis
-                        )
-
-
-                    if (
-                        isFollowUp
-                    ) {
-
-                        (
-                                "After that, your next event is " +
-                                        "${event.title} on $date " +
-                                        "at $time."
-                                )
-
-                    } else {
-
-                        (
-                                "Your next event is " +
-                                        "${event.title} on $date " +
-                                        "at $time."
-                                )
-                    }
-                }
-            }
-
-
-        cypherReply =
-            reply
-
-
-        speakReply(
-            reply
+    fun isDeleteConfirmation(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        return lower in setOf(
+            "yes", "yes please", "confirm", "confirmed", "do it",
+            "delete it", "remove it", "yep", "yeah",
         )
     }
 
 
-    fun readNextAppointment() {
-
-        val event =
-            getNextCalendarEvent(
-                afterMillis =
-                    System.currentTimeMillis()
-            )
-
-
-        speakUpcomingEvent(
-            event =
-                event,
-
-            isFollowUp =
-                false,
+    fun isDeleteCancellation(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        return lower in setOf(
+            "no", "no thanks", "cancel", "don't", "dont", "never mind",
+            "nevermind", "leave it",
         )
     }
 
 
-    fun readAppointmentAfterThat() {
-
-        val previousEventTime =
-            lastCalendarEventStartMillis
-
-
-        if (
-            previousEventTime == null
-        ) {
-
-            val reply =
-                (
-                        "I don't have a previous appointment " +
-                                "to continue from. Ask me for your " +
-                                "next appointment first."
-                        )
-
-
-            cypherReply =
-                reply
-
-
-            speakReply(
-                reply
-            )
-
-            return
-        }
-
-
-        val event =
-            getNextCalendarEvent(
-                afterMillis =
-                    previousEventTime
-            )
-
-
-        speakUpcomingEvent(
-            event =
-                event,
-
-            isFollowUp =
-                true,
-        )
+    fun normaliseTimeText(message: String): String {
+        return message
+            .lowercase()
+            .replace("a.m.", "am")
+            .replace("p.m.", "pm")
+            .replace("a.m", "am")
+            .replace("p.m", "pm")
+            .replace("a m", "am")
+            .replace("p m", "pm")
     }
 
 
-    fun calculateEventDate(
-        target: String,
-        hour: Int,
-        minute: Int,
-    ): Calendar {
-
-        val result =
-            Calendar.getInstance()
-
-
-        when (
-            target
-        ) {
-
-            "tomorrow" -> {
-
-                result.add(
-                    Calendar.DAY_OF_YEAR,
-                    1
-                )
-            }
-
-
-            "today" -> {
-            }
-
-
-            else -> {
-
-                val requestedWeekday =
-                    weekdayNumber(
-                        target
-                    )
-
-
-                if (
-                    requestedWeekday != null
-                ) {
-
-                    val currentWeekday =
-                        result.get(
-                            Calendar.DAY_OF_WEEK
-                        )
-
-
-                    var daysAhead =
-                        (
-                                requestedWeekday -
-                                        currentWeekday +
-                                        7
-                                ) % 7
-
-
-                    if (
-                        daysAhead == 0
-                    ) {
-
-                        val requestedMinutes =
-                            hour * 60 +
-                                    minute
-
-
-                        val currentMinutes =
-                            result.get(
-                                Calendar.HOUR_OF_DAY
-                            ) * 60 +
-                                    result.get(
-                                        Calendar.MINUTE
-                                    )
-
-
-                        if (
-                            requestedMinutes <=
-                            currentMinutes
-                        ) {
-
-                            daysAhead =
-                                7
-                        }
-                    }
-
-
-                    if (
-                        daysAhead > 0
-                    ) {
-
-                        result.add(
-                            Calendar.DAY_OF_YEAR,
-                            daysAhead,
-                        )
-                    }
-                }
-            }
-        }
-
-
-        result.set(
-            Calendar.HOUR_OF_DAY,
-            hour
+    fun parseExplicitTimes(message: String): List<Triple<Int, Int, String>> {
+        val normalised = normaliseTimeText(message)
+        val regex = Regex(
+            "\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\b",
+            RegexOption.IGNORE_CASE,
         )
 
-        result.set(
-            Calendar.MINUTE,
-            minute
-        )
-
-        result.set(
-            Calendar.SECOND,
-            0
-        )
-
-        result.set(
-            Calendar.MILLISECOND,
-            0
-        )
-
-
-        return result
+        return regex.findAll(normalised).mapNotNull { match ->
+            val hour = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            val minute = match.groupValues[2].ifBlank { "0" }.toIntOrNull()
+                ?: return@mapNotNull null
+            val period = match.groupValues[3].lowercase()
+            if (hour !in 1..12 || minute !in 0..59) return@mapNotNull null
+            Triple(hour, minute, period)
+        }.toList()
     }
 
 
-    fun extractEventTitle(
-        message: String,
-    ): String {
-
-        var title =
-            message
-                .replace(
-                    Regex(
-                        "(?i)\\bcypher\\b"
-                    ),
-                    "",
-                )
-                .trim()
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)^(please\\s+)?(add|create|put|schedule|book|make|set)\\s+"
-                ),
-                "",
-            )
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)\\b(to|on|in)\\s+(my\\s+)?calendar\\b"
-                ),
-                "",
-            )
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)\\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b.*$"
-                ),
-                "",
-            )
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)\\bfrom\\s+\\d{1,2}(:\\d{2})?\\s*(am|pm)?.*$"
-                ),
-                "",
-            )
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)\\bat\\s+\\d{1,2}(:\\d{2})?\\s*(am|pm)?.*$"
-                ),
-                "",
-            )
-
-
-        title =
-            title.replace(
-                Regex(
-                    "(?i)\\bfor\\s+(half\\s+an\\s+hour|an\\s+hour|one\\s+hour|\\d+\\s+hours?|\\d+\\s+minutes?).*$"
-                ),
-                "",
-            )
-
-
-        title =
-            title
-                .replace(
-                    Regex(
-                        "\\s+"
-                    ),
-                    " ",
-                )
-                .trim(
-                    ' ',
-                    ',',
-                    '.',
-                )
-
-
-        if (
-            title.isBlank()
-        ) {
-
-            return "Calendar event"
-        }
-
-
-        return title.replaceFirstChar {
-
-            if (
-                it.isLowerCase()
-            ) {
-
-                it.titlecase(
-                    Locale.getDefault()
-                )
-
-            } else {
-
-                it.toString()
-            }
+    fun convertTo24Hour(rawHour: Int, period: String): Int {
+        return when {
+            period == "am" && rawHour == 12 -> 0
+            period == "pm" && rawHour != 12 -> rawHour + 12
+            else -> rawHour
         }
     }
 
 
-    fun convertTo24Hour(
+    fun calendarWithTime(
+        baseDate: Calendar,
         rawHour: Int,
+        minute: Int,
         period: String,
-    ): Int {
+    ): Calendar {
+        return (baseDate.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, convertTo24Hour(rawHour, period))
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+    }
 
-        var hour =
-            rawHour
 
+    fun parseReminderMinutes(message: String): Int? {
+        val lower = message.lowercase()
 
-        if (
-            period == "am" &&
-            rawHour == 12
-        ) {
-
-            hour =
-                0
+        if (Regex("\\bhalf\\s+an\\s+hour\\s+before\\b").containsMatchIn(lower)) {
+            return 30
         }
 
-
-        if (
-            period == "pm" &&
-            rawHour != 12
-        ) {
-
-            hour =
-                rawHour + 12
+        if (Regex("\\b(?:an|one)\\s+hour\\s+before\\b").containsMatchIn(lower)) {
+            return 60
         }
 
+        if (Regex("\\b(?:a|one)\\s+day\\s+before\\b").containsMatchIn(lower)) {
+            return 1440
+        }
 
-        return hour
+        Regex("\\b(\\d+)\\s+minutes?\\s+before\\b").find(lower)?.let {
+            return it.groupValues[1].toIntOrNull()
+        }
+
+        Regex("\\b(\\d+)\\s+hours?\\s+before\\b").find(lower)?.let {
+            return it.groupValues[1].toIntOrNull()?.times(60)
+        }
+
+        Regex("\\b(\\d+)\\s+days?\\s+before\\b").find(lower)?.let {
+            return it.groupValues[1].toIntOrNull()?.times(1440)
+        }
+
+        return null
+    }
+
+
+    fun reminderDescription(minutes: Int): String {
+        return when {
+            minutes == 30 -> "30 minutes before"
+            minutes == 60 -> "1 hour before"
+            minutes == 1440 -> "1 day before"
+            minutes % 1440 == 0 -> "${minutes / 1440} days before"
+            minutes % 60 == 0 -> "${minutes / 60} hours before"
+            else -> "$minutes minutes before"
+        }
     }
 
 
     fun calculateDurationEnd(
-        normalizedMessage: String,
+        message: String,
         start: Calendar,
-        startPeriod: String,
     ): Calendar {
+        val lower = normaliseTimeText(message)
+        val end = start.clone() as Calendar
+        end.add(Calendar.HOUR_OF_DAY, 1)
 
-        val end =
-            start.clone()
-                    as Calendar
-
-
-        end.add(
-            Calendar.HOUR_OF_DAY,
-            1
-        )
-
-
-        if (
-            Regex(
-                "\\bfor\\s+half\\s+an\\s+hour\\b",
-                RegexOption.IGNORE_CASE,
-            ).containsMatchIn(
-                normalizedMessage
-            )
-        ) {
-
-            end.timeInMillis =
-                start.timeInMillis
-
-
-            end.add(
-                Calendar.MINUTE,
-                30
-            )
-
-
-            return end
-        }
-
-
-        if (
-            Regex(
-                "\\bfor\\s+(an|one)\\s+hour\\b",
-                RegexOption.IGNORE_CASE,
-            ).containsMatchIn(
-                normalizedMessage
-            )
-        ) {
-
-            end.timeInMillis =
-                start.timeInMillis
-
-
-            end.add(
-                Calendar.HOUR_OF_DAY,
-                1
-            )
-
-
-            return end
-        }
-
-
-        val minuteDuration =
-            Regex(
-                "\\bfor\\s+(\\d+)\\s+minutes?\\b",
-                RegexOption.IGNORE_CASE,
-            ).find(
-                normalizedMessage
-            )
-
-
-        if (
-            minuteDuration != null
-        ) {
-
-            val minutes =
-                minuteDuration
-                    .groupValues[1]
-                    .toIntOrNull()
-
-
-            if (
-                minutes != null &&
-                minutes > 0
-            ) {
-
-                end.timeInMillis =
-                    start.timeInMillis
-
-
-                end.add(
-                    Calendar.MINUTE,
-                    minutes
-                )
-
-
-                return end
+        if (Regex("\\bfor\\s+half\\s+an\\s+hour\\b").containsMatchIn(lower)) {
+            return (start.clone() as Calendar).apply {
+                add(Calendar.MINUTE, 30)
             }
         }
 
-
-        val hourDuration =
-            Regex(
-                "\\bfor\\s+(\\d+)\\s+hours?\\b",
-                RegexOption.IGNORE_CASE,
-            ).find(
-                normalizedMessage
-            )
-
-
-        if (
-            hourDuration != null
-        ) {
-
-            val hours =
-                hourDuration
-                    .groupValues[1]
-                    .toIntOrNull()
-
-
-            if (
-                hours != null &&
-                hours > 0
-            ) {
-
-                end.timeInMillis =
-                    start.timeInMillis
-
-
-                end.add(
-                    Calendar.HOUR_OF_DAY,
-                    hours
-                )
-
-
-                return end
+        if (Regex("\\bfor\\s+(?:an|one)\\s+hour\\b").containsMatchIn(lower)) {
+            return (start.clone() as Calendar).apply {
+                add(Calendar.HOUR_OF_DAY, 1)
             }
         }
 
-
-        val untilMatch =
-            Regex(
-                "\\b(?:until|till)\\s+" +
-                        "(\\d{1,2})" +
-                        "(?::(\\d{2}))?" +
-                        "\\s*(am|pm)?\\b",
-                RegexOption.IGNORE_CASE,
-            ).find(
-                normalizedMessage
-            )
-
-
-        if (
-            untilMatch != null
-        ) {
-
-            val rawEndHour =
-                untilMatch
-                    .groupValues[1]
-                    .toIntOrNull()
-
-
-            val endMinute =
-                untilMatch
-                    .groupValues[2]
-                    .takeIf {
-                        it.isNotBlank()
-                    }
-                    ?.toIntOrNull()
-                    ?: 0
-
-
-            val explicitEndPeriod =
-                untilMatch
-                    .groupValues[3]
-                    .lowercase()
-
-
-            if (
-                rawEndHour != null &&
-                rawEndHour in 1..12 &&
-                endMinute in 0..59
-            ) {
-
-                val endHour24 =
-                    if (
-                        explicitEndPeriod.isNotBlank()
-                    ) {
-
-                        convertTo24Hour(
-                            rawHour =
-                                rawEndHour,
-
-                            period =
-                                explicitEndPeriod,
-                        )
-
-                    } else {
-
-                        var inferredHour =
-                            convertTo24Hour(
-                                rawHour =
-                                    rawEndHour,
-
-                                period =
-                                    startPeriod,
-                            )
-
-
-                        val startMinutes =
-                            start.get(
-                                Calendar.HOUR_OF_DAY
-                            ) * 60 +
-                                    start.get(
-                                        Calendar.MINUTE
-                                    )
-
-
-                        val endMinutes =
-                            inferredHour * 60 +
-                                    endMinute
-
-
-                        if (
-                            endMinutes <=
-                            startMinutes
-                        ) {
-
-                            inferredHour +=
-                                12
-
-
-                            if (
-                                inferredHour >= 24
-                            ) {
-
-                                inferredHour -=
-                                    24
-                            }
-                        }
-
-
-                        inferredHour
-                    }
-
-
-                end.timeInMillis =
-                    start.timeInMillis
-
-
-                end.set(
-                    Calendar.HOUR_OF_DAY,
-                    endHour24
-                )
-
-                end.set(
-                    Calendar.MINUTE,
-                    endMinute
-                )
-
-                end.set(
-                    Calendar.SECOND,
-                    0
-                )
-
-                end.set(
-                    Calendar.MILLISECOND,
-                    0
-                )
-
-
-                if (
-                    end.timeInMillis <=
-                    start.timeInMillis
-                ) {
-
-                    end.add(
-                        Calendar.DAY_OF_YEAR,
-                        1
-                    )
+        Regex("\\bfor\\s+(\\d+)\\s+minutes?\\b").find(lower)?.let { match ->
+            val minutes = match.groupValues[1].toIntOrNull()
+            if (minutes != null && minutes > 0) {
+                return (start.clone() as Calendar).apply {
+                    add(Calendar.MINUTE, minutes)
                 }
-
-
-                return end
             }
         }
 
+        Regex("\\bfor\\s+(\\d+)\\s+hours?\\b").find(lower)?.let { match ->
+            val hours = match.groupValues[1].toIntOrNull()
+            if (hours != null && hours > 0) {
+                return (start.clone() as Calendar).apply {
+                    add(Calendar.HOUR_OF_DAY, hours)
+                }
+            }
+        }
+
+        val explicitTimes = parseExplicitTimes(message)
+        if (("until" in lower || "till" in lower) && explicitTimes.size >= 2) {
+            val last = explicitTimes.last()
+            val finish = calendarWithTime(
+                start,
+                last.first,
+                last.second,
+                last.third,
+            )
+            if (finish.timeInMillis <= start.timeInMillis) {
+                finish.add(Calendar.DAY_OF_YEAR, 1)
+            }
+            return finish
+        }
 
         return end
     }
 
 
-    fun parseCalendarCreateRequest(
+    fun stripDateAndTimeLanguage(
         message: String,
-    ): CalendarCreateRequest? {
+    ): String {
 
-        val normalizedMessage =
-            message
-                .lowercase()
-                .replace(
-                    ".",
-                    ""
-                )
-                .replace(
-                    ",",
-                    ""
-                )
-                .replace(
-                    Regex("\\s+"),
-                    " ",
-                )
-                .trim()
+        var text =
+            message.lowercase()
 
 
-        val target =
-            getCalendarTarget(
-                normalizedMessage
+        /*
+         * Numeric day followed by month.
+         *
+         * Examples:
+         * 27 August
+         * 27th August
+         * the 27th of August
+         * 3rd of September 2026
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(?:the\\s+)?\\d{1,2}" +
+                            "(?:st|nd|rd|th)?" +
+                            "(?:\\s+of)?\\s+" +
+                            "(?:january|february|march|april|may|june|july|august|" +
+                            "september|october|november|december)" +
+                            "(?:\\s+\\d{4})?\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
             )
 
 
-        val match =
-            Regex(
-                "\\b(\\d{1,2})" +
-                        "(?::(\\d{2}))?" +
-                        "\\s*(am|pm)\\b",
-                RegexOption.IGNORE_CASE,
-            ).find(
-                normalizedMessage
+        /*
+         * Month followed by numeric day.
+         *
+         * Examples:
+         * August 27
+         * August 27th
+         * August the 27th
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(?:january|february|march|april|may|june|july|august|" +
+                            "september|october|november|december)\\s+" +
+                            "(?:the\\s+)?\\d{1,2}" +
+                            "(?:st|nd|rd|th)?" +
+                            "(?:\\s+\\d{4})?\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
             )
-                ?: return null
 
 
-        val rawHour =
-            match
-                .groupValues[1]
-                .toIntOrNull()
-                ?: return null
+        /*
+         * Spoken ordinal followed by month.
+         *
+         * Examples:
+         * twenty seventh of August
+         * the third of September
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(?:the\\s+)?" +
+                            "(?:first|second|third|fourth|fifth|sixth|seventh|" +
+                            "eighth|ninth|tenth|eleventh|twelfth|thirteenth|" +
+                            "fourteenth|fifteenth|sixteenth|seventeenth|" +
+                            "eighteenth|nineteenth|twentieth|" +
+                            "twenty\\s+first|twenty\\s+second|twenty\\s+third|" +
+                            "twenty\\s+fourth|twenty\\s+fifth|twenty\\s+sixth|" +
+                            "twenty\\s+seventh|twenty\\s+eighth|twenty\\s+ninth|" +
+                            "thirtieth|thirty\\s+first)" +
+                            "(?:\\s+of)?\\s+" +
+                            "(?:january|february|march|april|may|june|july|august|" +
+                            "september|october|november|december)" +
+                            "(?:\\s+\\d{4})?\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
 
 
-        val minute =
-            match
-                .groupValues[2]
-                .takeIf {
-                    it.isNotBlank()
-                }
-                ?.toIntOrNull()
-                ?: 0
+        /*
+         * Relative dates / weekdays.
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(today|tomorrow|monday|tuesday|wednesday|thursday|" +
+                            "friday|saturday|sunday)\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
 
 
-        val period =
-            match
-                .groupValues[3]
-                .lowercase()
+        /*
+         * Times.
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(?:at|from|to|until|till)?\\s*" +
+                            "\\d{1,2}(?::\\d{2})?\\s*" +
+                            "(?:a\\.?m\\.?|p\\.?m\\.?)\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
 
 
-        if (
-            rawHour !in 1..12 ||
-            minute !in 0..59
-        ) {
+        /*
+         * Reminder wording.
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\b(?:and\\s+)?" +
+                            "remind\\s+me\\s+.*?\\s+before\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
 
-            return null
+
+        /*
+         * Event duration.
+         */
+        text =
+            text.replace(
+                Regex(
+                    "\\bfor\\s+" +
+                            "(?:half\\s+an\\s+hour|" +
+                            "an\\s+hour|" +
+                            "one\\s+hour|" +
+                            "\\d+\\s+minutes?|" +
+                            "\\d+\\s+hours?)\\b",
+                    RegexOption.IGNORE_CASE,
+                ),
+                " ",
+            )
+
+
+        return text
+            .replace(
+                Regex("\\s+"),
+                " ",
+            )
+            .trim()
+    }
+
+
+    fun extractCreateTitle(message: String): String {
+        var title = stripDateAndTimeLanguage(message)
+
+        title = title.replace(Regex("(?i)\\bcypher\\b"), " ")
+        title = title.replace(
+            Regex("(?i)\\b(add|create|put|schedule|book|make|set)\\b"),
+            " ",
+        )
+        title = title.replace(
+            Regex("(?i)\\b(to|on|in)?\\s*(my\\s+)?calendar\\b"),
+            " ",
+        )
+        title = title.replace(
+            Regex("(?i)\\b(?:and\\s+)?remind\\s+me.*$"),
+            " ",
+        )
+
+        title = title.replace(Regex("\\s+"), " ").trim(' ', ',', '.')
+
+        return if (title.isBlank()) {
+            "Calendar event"
+        } else {
+            title.replaceFirstChar {
+                if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+            }
         }
+    }
 
 
-        val hour24 =
-            convertTo24Hour(
-                rawHour =
-                    rawHour,
+    fun extractLookupTitle(message: String): String {
+        var title = stripDateAndTimeLanguage(message)
 
-                period =
-                    period,
-            )
+        title = title.replace(Regex("(?i)\\bcypher\\b"), " ")
+        title = title.replace(
+            Regex(
+                "(?i)\\b(delete|remove|cancel|move|change|reschedule|" +
+                        "remind|reminder|set|add|please|appointment|event|meeting)\\b"
+            ),
+            " ",
+        )
+        title = title.replace(
+            Regex("(?i)\\b(me|my|the|a|an|calendar|before|for|on|at|to|from|minute|minutes|hour|hours|day|days)\\b"),
+            " ",
+        )
+        title = title.replace(Regex("\\b\\d+\\b"), " ")
+        title = title.replace(Regex("\\s+"), " ").trim(' ', ',', '.')
 
-
-        val start =
-            calculateEventDate(
-                target =
-                    target,
-
-                hour =
-                    hour24,
-
-                minute =
-                    minute,
-            )
-
-
-        val end =
-            calculateDurationEnd(
-                normalizedMessage =
-                    normalizedMessage,
-
-                start =
-                    start,
-
-                startPeriod =
-                    period,
-            )
+        return title
+    }
 
 
-        val title =
-            extractEventTitle(
-                normalizedMessage
-            )
-
-
-        val displayTime =
-            SimpleDateFormat(
-                "h:mm a",
-                Locale.getDefault(),
-            ).format(
-                start.time
-            )
-
-
-        val displayDay =
-            calendarTargetDescription(
-                target
-            )
-
+    fun parseCalendarCreateRequest(message: String): CalendarCreateRequest? {
+        val times = parseExplicitTimes(message)
+        val firstTime = times.firstOrNull() ?: return null
+        val date = getCalendarDate(message)
+        val start = calendarWithTime(
+            date,
+            firstTime.first,
+            firstTime.second,
+            firstTime.third,
+        )
+        val end = calculateDurationEnd(message, start)
+        val reminderMinutes = parseReminderMinutes(message)
 
         return CalendarCreateRequest(
-
-            title =
-                title,
-
-            startTimeMillis =
-                start.timeInMillis,
-
-            endTimeMillis =
-                end.timeInMillis,
-
-            confirmationDay =
-                displayDay,
-
-            confirmationTime =
-                displayTime,
+            title = extractCreateTitle(message),
+            startTimeMillis = start.timeInMillis,
+            endTimeMillis = end.timeInMillis,
+            confirmationDay = formatDate(start),
+            confirmationTime = formatTime(start.timeInMillis),
+            reminderMinutes = reminderMinutes,
         )
     }
 
 
-    fun createCalendarEvent(
-        request: CalendarCreateRequest,
+    fun getEventsForMessage(message: String): List<CypherCalendarEvent> {
+        val manager = calendarManager ?: return emptyList()
+        val range = getCalendarDayRange(message)
+        return manager.getEventsBetween(
+            startMillis = range.first,
+            endMillis = range.second,
+        )
+    }
+
+
+    fun formatCalendarEvents(
+        events: List<CypherCalendarEvent>,
+        message: String,
+    ): String {
+        val date = getCalendarDate(message)
+        val dateDescription = formatDate(date)
+
+        if (events.isEmpty()) {
+            return "You have nothing on your calendar for $dateDescription."
+        }
+
+        val eventDescriptions = events.map { event ->
+            if (event.allDay) {
+                event.title
+            } else {
+                "${event.title} at ${formatTime(event.startTimeMillis)}"
+            }
+        }
+
+        val count = if (events.size == 1) "one event" else "${events.size} events"
+
+        return "You have $count on $dateDescription. " +
+                eventDescriptions.joinToString(", ") + "."
+    }
+
+
+    fun readCalendar(message: String) {
+        val events = getEventsForMessage(message)
+        reply(formatCalendarEvents(events, message))
+    }
+
+
+    fun getNextCalendarEvent(afterMillis: Long): CypherCalendarEvent? {
+        val manager = calendarManager ?: return null
+        val searchEnd = Calendar.getInstance().apply {
+            timeInMillis = afterMillis
+            add(Calendar.YEAR, 1)
+        }.timeInMillis
+
+        return manager.getEventsBetween(
+            startMillis = afterMillis + 1,
+            endMillis = searchEnd,
+        ).firstOrNull { it.startTimeMillis > afterMillis }
+    }
+
+
+    fun speakUpcomingEvent(
+        event: CypherCalendarEvent?,
+        isFollowUp: Boolean,
     ) {
-
-        val manager =
-            calendarManager
-
-
-        if (
-            manager == null
-        ) {
-
-            val reply =
-                "I couldn't access your calendar."
-
-
-            cypherReply =
-                reply
-
-
-            speakReply(
-                reply
+        if (event == null) {
+            reply(
+                if (isFollowUp) {
+                    "You have no later appointments on your calendar."
+                } else {
+                    "You have no upcoming appointments."
+                }
             )
-
-
             return
         }
 
+        lastCalendarEventStartMillis = event.startTimeMillis
+        val date = SimpleDateFormat(
+            "EEEE d MMMM",
+            Locale.getDefault(),
+        ).format(event.startTimeMillis)
 
-        val eventId =
-            manager.createEvent(
+        val prefix = if (isFollowUp) "After that, your next event is" else "Your next event is"
 
-                title =
-                    request.title,
+        val text = if (event.allDay) {
+            "$prefix ${event.title} on $date."
+        } else {
+            "$prefix ${event.title} on $date at ${formatTime(event.startTimeMillis)}."
+        }
 
-                startTimeMillis =
-                    request.startTimeMillis,
+        reply(text)
+    }
 
-                endTimeMillis =
-                    request.endTimeMillis,
+
+    fun readNextAppointment() {
+        speakUpcomingEvent(
+            getNextCalendarEvent(System.currentTimeMillis()),
+            isFollowUp = false,
+        )
+    }
+
+
+    fun readAppointmentAfterThat() {
+        val previous = lastCalendarEventStartMillis
+        if (previous == null) {
+            reply(
+                "I don't have a previous appointment to continue from. " +
+                        "Ask me for your next appointment first."
             )
+            return
+        }
+
+        speakUpcomingEvent(
+            getNextCalendarEvent(previous),
+            isFollowUp = true,
+        )
+    }
 
 
-        val reply =
-            if (
-                eventId != null
-            ) {
+    fun createCalendarEvent(request: CalendarCreateRequest) {
+        val manager = calendarManager
+        if (manager == null) {
+            reply("I couldn't access your calendar.")
+            return
+        }
 
-                (
-                        "Done. I've added " +
-                                "${request.title} to your calendar " +
-                                "for ${request.confirmationDay} " +
-                                "at ${request.confirmationTime}."
-                        )
+        val eventId = manager.createEvent(
+            title = request.title,
+            startTimeMillis = request.startTimeMillis,
+            endTimeMillis = request.endTimeMillis,
+            reminderMinutes = request.reminderMinutes,
+        )
 
-            } else {
+        if (eventId == null) {
+            reply(
+                "I couldn't add that event. I may not have access to a writable calendar."
+            )
+            return
+        }
 
-                (
-                        "I couldn't add that event. " +
-                                "I may not have access to a writable calendar."
-                        )
+        val reminderText = request.reminderMinutes?.let {
+            " I've also set a reminder ${reminderDescription(it)}."
+        } ?: ""
+
+        reply(
+            "Done. I've added ${request.title} to your calendar for " +
+                    "${request.confirmationDay} at ${request.confirmationTime}." +
+                    reminderText
+        )
+    }
+
+
+    fun findMatchingEvents(message: String): List<CypherCalendarEvent> {
+        val manager = calendarManager ?: return emptyList()
+        val range = getCalendarDayRange(message)
+        val title = extractLookupTitle(message)
+
+        if (title.isBlank()) {
+            return manager.getEventsBetween(range.first, range.second)
+        }
+
+        return manager.findEvents(
+            titleWords = title,
+            startMillis = range.first,
+            endMillis = range.second,
+        )
+    }
+
+
+    fun describeMatches(
+        matches: List<CypherCalendarEvent>,
+    ): String {
+        return matches.take(4).joinToString(", ") { event ->
+            if (event.allDay) event.title
+            else "${event.title} at ${formatTime(event.startTimeMillis)}"
+        }
+    }
+
+
+    fun handleDeleteRequest(message: String) {
+        val matches = findMatchingEvents(message)
+
+        when {
+            matches.isEmpty() -> {
+                reply("I couldn't find a matching calendar event on that date.")
             }
 
+            matches.size > 1 -> {
+                reply(
+                    "I found more than one matching event: ${describeMatches(matches)}. " +
+                            "Please tell me which one you want to delete."
+                )
+            }
 
-        cypherReply =
-            reply
+            else -> {
+                val event = matches.first()
+                pendingDeleteEvent = event
+                val date = SimpleDateFormat(
+                    "EEEE d MMMM",
+                    Locale.getDefault(),
+                ).format(event.startTimeMillis)
+
+                reply(
+                    "I found ${event.title} on $date at ${formatTime(event.startTimeMillis)}. " +
+                            "Do you want me to delete it?"
+                )
+            }
+        }
+    }
 
 
-        speakReply(
-            reply
+    fun confirmDelete() {
+        val event = pendingDeleteEvent
+        if (event == null) {
+            reply("There isn't a calendar deletion waiting for confirmation.")
+            return
+        }
+
+        val deleted = calendarManager?.deleteEvent(event.id) == true
+        pendingDeleteEvent = null
+
+        if (deleted) {
+            reply("Done. I've deleted ${event.title} from your calendar.")
+        } else {
+            reply("I couldn't delete that calendar event.")
+        }
+    }
+
+
+    fun cancelDelete() {
+        pendingDeleteEvent = null
+        reply("Okay. I won't delete it.")
+    }
+
+
+    fun handleEditRequest(message: String) {
+        val matches = findMatchingEvents(message)
+
+        if (matches.isEmpty()) {
+            reply("I couldn't find a matching calendar event on that date.")
+            return
+        }
+
+        if (matches.size > 1) {
+            reply(
+                "I found more than one matching event: ${describeMatches(matches)}. " +
+                        "Please be more specific."
+            )
+            return
+        }
+
+        val newTime = parseExplicitTimes(message).lastOrNull()
+        if (newTime == null) {
+            reply("I found the event, but I need the new time you want to move it to.")
+            return
+        }
+
+        val event = matches.first()
+        val newDate = getCalendarDate(message)
+        val newStart = calendarWithTime(
+            newDate,
+            newTime.first,
+            newTime.second,
+            newTime.third,
         )
+
+        val oldDuration = (event.endTimeMillis - event.startTimeMillis).coerceAtLeast(60_000L)
+        val newEnd = newStart.timeInMillis + oldDuration
+
+        val updated = calendarManager?.updateEventTime(
+            eventId = event.id,
+            startTimeMillis = newStart.timeInMillis,
+            endTimeMillis = newEnd,
+        ) == true
+
+        if (updated) {
+            reply(
+                "Done. I've moved ${event.title} to ${formatDate(newStart)} " +
+                        "at ${formatTime(newStart.timeInMillis)}."
+            )
+        } else {
+            reply("I couldn't update that calendar event.")
+        }
+    }
+
+
+    fun handleStandaloneReminderRequest(message: String) {
+        val reminderMinutes = parseReminderMinutes(message)
+        if (reminderMinutes == null) {
+            reply(
+                "I found the reminder request, but I need how long before the event, " +
+                        "for example 30 minutes before."
+            )
+            return
+        }
+
+        val matches = findMatchingEvents(message)
+
+        if (matches.isEmpty()) {
+            reply("I couldn't find a matching calendar event on that date.")
+            return
+        }
+
+        if (matches.size > 1) {
+            reply(
+                "I found more than one matching event: ${describeMatches(matches)}. " +
+                        "Please tell me which one you want the reminder for."
+            )
+            return
+        }
+
+        val event = matches.first()
+        val set = calendarManager?.replaceReminder(
+            eventId = event.id,
+            minutesBefore = reminderMinutes,
+        ) == true
+
+        if (set) {
+            reply(
+                "Done. I've set a reminder ${reminderDescription(reminderMinutes)} " +
+                        "for ${event.title}."
+            )
+        } else {
+            reply("I couldn't set that calendar reminder.")
+        }
     }
 
 
     val calendarReadPermissionLauncher =
         rememberLauncherForActivityResult(
-            contract =
-                ActivityResultContracts
-                    .RequestPermission()
-        ) {
-                granted ->
-
-
-            if (
-                granted
-            ) {
-
-                when (
-                    pendingCalendarTarget
-                ) {
-
-                    "next" -> {
-
-                        readNextAppointment()
-                    }
-
-
-                    "next_after" -> {
-
-                        readAppointmentAfterThat()
-                    }
-
-
-                    else -> {
-
-                        readCalendar(
-                            pendingCalendarTarget
-                        )
-                    }
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                when (pendingCalendarTarget) {
+                    "next" -> readNextAppointment()
+                    "next_after" -> readAppointmentAfterThat()
+                    else -> readCalendar(pendingCalendarTarget)
                 }
-
             } else {
-
-                cypherReply =
-                    "Calendar permission was not granted."
+                reply("Calendar permission was not granted.")
             }
         }
 
 
-    fun requestNextAppointment() {
+    val calendarWritePermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
 
-        val permissionGranted =
-            ContextCompat
-                .checkSelfPermission(
-                    context,
+            val readGranted =
+                permissions[Manifest.permission.READ_CALENDAR] == true ||
+                        hasReadCalendarPermission()
 
-                    Manifest
-                        .permission
-                        .READ_CALENDAR,
-                ) ==
-                    PackageManager
-                        .PERMISSION_GRANTED
+            val writeGranted =
+                permissions[Manifest.permission.WRITE_CALENDAR] == true ||
+                        hasWriteCalendarPermission()
+
+            if (readGranted && writeGranted) {
+                pendingCalendarCreateRequest?.let { createCalendarEvent(it) }
+            } else {
+                reply("Calendar write permission was not granted.")
+            }
+
+            pendingCalendarCreateRequest = null
+        }
 
 
-        if (
-            permissionGranted
-        ) {
+    fun requestCalendarRead(message: String) {
+        pendingCalendarTarget = message
 
-            readNextAppointment()
-
+        if (hasReadCalendarPermission()) {
+            readCalendar(message)
         } else {
+            calendarReadPermissionLauncher.launch(
+                Manifest.permission.READ_CALENDAR
+            )
+        }
+    }
 
-            pendingCalendarTarget =
-                "next"
 
+    fun requestNextAppointment() {
+        pendingCalendarTarget = "next"
 
-            calendarReadPermissionLauncher
-                .launch(
-                    Manifest
-                        .permission
-                        .READ_CALENDAR
-                )
+        if (hasReadCalendarPermission()) {
+            readNextAppointment()
+        } else {
+            calendarReadPermissionLauncher.launch(
+                Manifest.permission.READ_CALENDAR
+            )
         }
     }
 
 
     fun requestAppointmentAfterThat() {
+        pendingCalendarTarget = "next_after"
 
-        val permissionGranted =
-            ContextCompat
-                .checkSelfPermission(
-                    context,
-
-                    Manifest
-                        .permission
-                        .READ_CALENDAR,
-                ) ==
-                    PackageManager
-                        .PERMISSION_GRANTED
-
-
-        if (
-            permissionGranted
-        ) {
-
+        if (hasReadCalendarPermission()) {
             readAppointmentAfterThat()
-
         } else {
-
-            pendingCalendarTarget =
-                "next_after"
-
-
-            calendarReadPermissionLauncher
-                .launch(
-                    Manifest
-                        .permission
-                        .READ_CALENDAR
-                )
+            calendarReadPermissionLauncher.launch(
+                Manifest.permission.READ_CALENDAR
+            )
         }
     }
 
 
-    val calendarWritePermissionLauncher =
-        rememberLauncherForActivityResult(
-            contract =
-                ActivityResultContracts
-                    .RequestMultiplePermissions()
-        ) {
-                permissions ->
+    fun requestCalendarCreate(message: String) {
+        val request = parseCalendarCreateRequest(message)
 
-
-            val readGranted =
-                permissions[
-                    Manifest.permission.READ_CALENDAR
-                ] ==
-                        true ||
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.READ_CALENDAR,
-                        ) ==
-                        PackageManager.PERMISSION_GRANTED
-
-
-            val writeGranted =
-                permissions[
-                    Manifest.permission.WRITE_CALENDAR
-                ] ==
-                        true ||
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.WRITE_CALENDAR,
-                        ) ==
-                        PackageManager.PERMISSION_GRANTED
-
-
-            if (
-                readGranted &&
-                writeGranted
-            ) {
-
-                pendingCalendarCreateRequest
-                    ?.let {
-                            request ->
-
-                        createCalendarEvent(
-                            request
-                        )
-                    }
-
-            } else {
-
-                val reply =
-                    "Calendar write permission was not granted."
-
-
-                cypherReply =
-                    reply
-
-
-                speakReply(
-                    reply
-                )
-            }
-
-
-            pendingCalendarCreateRequest =
-                null
-        }
-
-
-    fun handleCalendarReadRequest(
-        message: String,
-    ) {
-
-        val target =
-            getCalendarTarget(
-                message
+        if (request == null) {
+            reply(
+                "I can add that, but please include a date or day and time, " +
+                        "for example, add dentist appointment on 27 August at 2 PM."
             )
-
-
-        pendingCalendarTarget =
-            target
-
-
-        val permissionGranted =
-            ContextCompat
-                .checkSelfPermission(
-                    context,
-
-                    Manifest
-                        .permission
-                        .READ_CALENDAR,
-                ) ==
-                    PackageManager
-                        .PERMISSION_GRANTED
-
-
-        if (
-            permissionGranted
-        ) {
-
-            readCalendar(
-                target
-            )
-
-        } else {
-
-            calendarReadPermissionLauncher
-                .launch(
-                    Manifest
-                        .permission
-                        .READ_CALENDAR
-                )
-        }
-    }
-
-
-    fun handleCalendarCreateRequest(
-        message: String,
-    ) {
-
-        val request =
-            parseCalendarCreateRequest(
-                message
-            )
-
-
-        if (
-            request == null
-        ) {
-
-            val reply =
-                (
-                        "I can add that, but please include " +
-                                "a day and time, for example, " +
-                                "add dentist appointment Monday at 2 PM."
-                        )
-
-
-            cypherReply =
-                reply
-
-
-            speakReply(
-                reply
-            )
-
-
             return
         }
 
-
-        val readGranted =
-            ContextCompat
-                .checkSelfPermission(
-                    context,
-
-                    Manifest
-                        .permission
-                        .READ_CALENDAR,
-                ) ==
-                    PackageManager
-                        .PERMISSION_GRANTED
-
-
-        val writeGranted =
-            ContextCompat
-                .checkSelfPermission(
-                    context,
-
-                    Manifest
-                        .permission
-                        .WRITE_CALENDAR,
-                ) ==
-                    PackageManager
-                        .PERMISSION_GRANTED
-
-
-        if (
-            readGranted &&
-            writeGranted
-        ) {
-
-            createCalendarEvent(
-                request
-            )
-
+        if (hasReadCalendarPermission() && hasWriteCalendarPermission()) {
+            createCalendarEvent(request)
         } else {
-
-            pendingCalendarCreateRequest =
-                request
-
-
-            calendarWritePermissionLauncher
-                .launch(
-                    arrayOf(
-                        Manifest.permission.READ_CALENDAR,
-                        Manifest.permission.WRITE_CALENDAR,
-                    )
+            pendingCalendarCreateRequest = request
+            calendarWritePermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_CALENDAR,
+                    Manifest.permission.WRITE_CALENDAR,
                 )
+            )
         }
     }
 
 
-    fun sendMessageToCypherOS(
-        message: String,
-    ) {
-
-        if (
-            message.isBlank()
-        ) {
-
-            return
+    fun runCalendarWriteAction(action: () -> Unit) {
+        if (hasReadCalendarPermission() && hasWriteCalendarPermission()) {
+            action()
+        } else {
+            reply(
+                "I need calendar read and write permission for that. " +
+                        "Please allow calendar access and try the command again."
+            )
         }
+    }
 
 
-        isThinking =
-            true
+    fun sendMessageToCypherOS(message: String) {
+        if (message.isBlank()) return
 
-        isSpeaking =
-            false
-
-        cypherReply =
-            ""
-
+        isThinking = true
+        isSpeaking = false
+        cypherReply = ""
 
         coroutineScope.launch {
-
             try {
+                val answer = withContext(Dispatchers.IO) {
+                    apiClient.sendMessage(message)
+                }
 
-                val reply =
-                    withContext(
-                        Dispatchers.IO
-                    ) {
+                cypherReply = answer
+                isThinking = false
+                speakReply(answer)
 
-                        apiClient.sendMessage(
-                            message
-                        )
-                    }
-
-
-                cypherReply =
-                    reply
-
-
-                isThinking =
-                    false
-
-
-                speakReply(
-                    reply
-                )
-
-            } catch (
-                error: Exception
-            ) {
-
-                isThinking =
-                    false
-
-
-                cypherReply =
-                    "I couldn't connect to CypherOS."
+            } catch (_: Exception) {
+                isThinking = false
+                cypherReply = "I couldn't connect to CypherOS."
             }
         }
     }
 
 
     fun startListening() {
-
-        recognizedText =
-            ""
-
-        cypherReply =
-            ""
-
-
+        recognizedText = ""
+        cypherReply = ""
         stopSpeaking()
 
-
         speechRecognizer?.start(
-
-            onListeningChanged = {
-                    listening ->
-
-
-                isListening =
-                    listening
-
-
-                if (
-                    !listening
-                ) {
-
-                    microphoneLevel =
-                        0f
-                }
+            onListeningChanged = { listening ->
+                isListening = listening
+                if (!listening) microphoneLevel = 0f
             },
-
-
-            onLevelChanged = {
-                    level ->
-
-
-                microphoneLevel =
-                    level
+            onLevelChanged = { level ->
+                microphoneLevel = level
             },
-
-
-            onTextRecognized = {
-                    text ->
-
-
+            onTextRecognized = { text ->
                 val normalizedText =
-                    CypherNameNormalizer
-                        .normalize(
-                            text
-                        )
+                    CypherNameNormalizer.normalize(text)
 
-
-                recognizedText =
-                    normalizedText
-
+                recognizedText = normalizedText
 
                 when {
+                    pendingDeleteEvent != null && isDeleteConfirmation(normalizedText) -> {
+                        runCalendarWriteAction { confirmDelete() }
+                    }
 
-                    /*
-                     * IMPORTANT:
-                     * Check "after that" BEFORE
-                     * generic "next appointment".
-                     */
-                    isNextAfterThatRequest(
-                        normalizedText
-                    ) -> {
+                    pendingDeleteEvent != null && isDeleteCancellation(normalizedText) -> {
+                        cancelDelete()
+                    }
 
+                    isNextAfterThatRequest(normalizedText) -> {
                         requestAppointmentAfterThat()
                     }
 
-
-                    isCalendarCreateRequest(
-                        normalizedText
-                    ) -> {
-
-                        handleCalendarCreateRequest(
-                            normalizedText
-                        )
+                    isCalendarDeleteRequest(normalizedText) -> {
+                        runCalendarWriteAction { handleDeleteRequest(normalizedText) }
                     }
 
+                    isCalendarEditRequest(normalizedText) -> {
+                        runCalendarWriteAction { handleEditRequest(normalizedText) }
+                    }
 
-                    isNextAppointmentRequest(
-                        normalizedText
-                    ) -> {
+                    isStandaloneReminderRequest(normalizedText) -> {
+                        runCalendarWriteAction {
+                            handleStandaloneReminderRequest(normalizedText)
+                        }
+                    }
 
+                    isCalendarCreateRequest(normalizedText) -> {
+                        requestCalendarCreate(normalizedText)
+                    }
+
+                    isNextAppointmentRequest(normalizedText) -> {
                         requestNextAppointment()
                     }
 
-
-                    isCalendarReadRequest(
-                        normalizedText
-                    ) -> {
-
-                        handleCalendarReadRequest(
-                            normalizedText
-                        )
+                    isCalendarReadRequest(normalizedText) -> {
+                        requestCalendarRead(normalizedText)
                     }
 
-
                     else -> {
-
-                        sendMessageToCypherOS(
-                            normalizedText
-                        )
+                        sendMessageToCypherOS(normalizedText)
                     }
                 }
             },
@@ -2622,26 +1396,14 @@ fun CypherHomeScreen() {
 
     val microphonePermissionLauncher =
         rememberLauncherForActivityResult(
-            contract =
-                ActivityResultContracts
-                    .RequestPermission()
-        ) {
-                granted ->
-
-
-            if (
-                granted
-            ) {
-
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
                 startListening()
-
             } else {
-
-                isListening =
-                    false
+                isListening = false
             }
         }
-
 
     val currentHour =
         Calendar
@@ -3237,47 +1999,61 @@ fun CypherHomeScreen() {
             )
 
 
-            Text(
-                text =
-                    when {
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(
+                            min = 40.dp,
+                            max = 140.dp,
+                        )
+                        .verticalScroll(
+                            rememberScrollState()
+                        ),
+            ) {
 
-                        isListening ->
-                            "I'm listening..."
+                Text(
+                    text =
+                        when {
 
-                        isThinking ->
-                            "Thinking..."
+                            isListening ->
+                                "I'm listening..."
 
-                        cypherReply
-                            .isNotBlank() ->
+                            isThinking ->
+                                "Thinking..."
+
                             cypherReply
+                                .isNotBlank() ->
+                                cypherReply
 
-                        recognizedText
-                            .isNotBlank() ->
                             recognizedText
+                                .isNotBlank() ->
+                                recognizedText
 
-                        else ->
-                            "Awaiting your command."
-                    },
+                            else ->
+                                "Awaiting your command."
+                        },
 
-                color =
-                    when {
+                    color =
+                        when {
 
-                        isListening ->
-                            secondaryAccent
+                            isListening ->
+                                secondaryAccent
 
-                        isThinking ->
-                            accent
+                            isThinking ->
+                                accent
 
-                        isSpeaking ->
-                            secondaryAccent
+                            isSpeaking ->
+                                secondaryAccent
 
-                        else ->
-                            secondaryText
-                    },
+                            else ->
+                                secondaryText
+                        },
 
-                fontSize =
-                    14.sp,
-            )
+                    fontSize =
+                        14.sp,
+                )
+            }
 
 
             Spacer(
