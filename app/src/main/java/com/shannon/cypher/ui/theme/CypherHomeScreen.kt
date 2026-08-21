@@ -34,6 +34,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,10 +56,14 @@ import androidx.core.content.ContextCompat
 import com.shannon.cypher.R
 import com.shannon.cypher.audio.CypherSpeechRecognizer
 import com.shannon.cypher.identity.CypherNameNormalizer
+import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.ui.theme.CypherTheme
 import java.util.Calendar
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 @Composable
@@ -72,9 +77,14 @@ fun CypherHomeScreen() {
     val secondaryText = Color(0xFFA99AAF)
 
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
 
     var isListening by remember {
+        mutableStateOf(false)
+    }
+
+    var isThinking by remember {
         mutableStateOf(false)
     }
 
@@ -86,11 +96,19 @@ fun CypherHomeScreen() {
         mutableStateOf("")
     }
 
+    var cypherReply by remember {
+        mutableStateOf("")
+    }
+
 
     val speechRecognizer = remember {
         CypherSpeechRecognizer(
             context
         )
+    }
+
+    val apiClient = remember {
+        CypherApiClient()
     }
 
 
@@ -102,9 +120,50 @@ fun CypherHomeScreen() {
     }
 
 
+    fun sendMessageToCypherOS(
+        message: String,
+    ) {
+
+        if (message.isBlank()) {
+            return
+        }
+
+        isThinking = true
+        cypherReply = ""
+
+        coroutineScope.launch {
+
+            try {
+
+                val reply =
+                    withContext(
+                        Dispatchers.IO
+                    ) {
+
+                        apiClient.sendMessage(
+                            message
+                        )
+                    }
+
+                cypherReply = reply
+
+            } catch (error: Exception) {
+
+                cypherReply =
+                    "I couldn't connect to CypherOS."
+
+            } finally {
+
+                isThinking = false
+            }
+        }
+    }
+
+
     fun startListening() {
 
         recognizedText = ""
+        cypherReply = ""
 
         speechRecognizer.start(
 
@@ -127,10 +186,17 @@ fun CypherHomeScreen() {
             onTextRecognized = {
                     text ->
 
-                recognizedText =
+                val normalizedText =
                     CypherNameNormalizer.normalize(
                         text
                     )
+
+                recognizedText =
+                    normalizedText
+
+                sendMessageToCypherOS(
+                    normalizedText
+                )
             },
         )
     }
@@ -216,10 +282,10 @@ fun CypherHomeScreen() {
 
                 animation = tween(
                     durationMillis =
-                        if (isListening) {
-                            3000
-                        } else {
-                            9000
+                        when {
+                            isThinking -> 1800
+                            isListening -> 3000
+                            else -> 9000
                         },
                 ),
 
@@ -268,17 +334,27 @@ fun CypherHomeScreen() {
 
             Text(
                 text =
-                    if (isListening) {
-                        "LISTENING"
-                    } else {
-                        "SYSTEM ONLINE"
+                    when {
+                        isListening ->
+                            "LISTENING"
+
+                        isThinking ->
+                            "THINKING"
+
+                        else ->
+                            "SYSTEM ONLINE"
                     },
 
                 color =
-                    if (isListening) {
-                        secondaryAccent
-                    } else {
-                        secondaryText
+                    when {
+                        isListening ->
+                            secondaryAccent
+
+                        isThinking ->
+                            accent
+
+                        else ->
+                            secondaryText
                     },
 
                 fontSize = 12.sp,
@@ -430,7 +506,7 @@ fun CypherHomeScreen() {
                 }
 
 
-                // Inner HUD ring
+                // Inner segmented HUD
                 Box(
                     modifier =
                         Modifier.size(160.dp),
@@ -597,27 +673,45 @@ fun CypherHomeScreen() {
 
             Text(
                 text =
-                    if (isListening) {
+                    when {
 
-                        "I'm listening..."
+                        isListening -> {
 
-                    } else if (
-                        recognizedText
-                            .isNotBlank()
-                    ) {
+                            "I'm listening..."
+                        }
 
-                        recognizedText
+                        isThinking -> {
 
-                    } else {
+                            "Thinking..."
+                        }
 
-                        "Awaiting your command."
+                        cypherReply.isNotBlank() -> {
+
+                            cypherReply
+                        }
+
+                        recognizedText.isNotBlank() -> {
+
+                            recognizedText
+                        }
+
+                        else -> {
+
+                            "Awaiting your command."
+                        }
                     },
 
                 color =
-                    if (isListening) {
-                        secondaryAccent
-                    } else {
-                        secondaryText
+                    when {
+
+                        isListening ->
+                            secondaryAccent
+
+                        isThinking ->
+                            accent
+
+                        else ->
+                            secondaryText
                     },
 
                 fontSize = 14.sp,
@@ -699,10 +793,25 @@ fun CypherHomeScreen() {
 
                     StatusRow(
                         label = "STATUS",
-                        value = "ONLINE",
+                        value =
+                            if (
+                                cypherReply ==
+                                "I couldn't connect to CypherOS."
+                            ) {
+                                "OFFLINE"
+                            } else {
+                                "ONLINE"
+                            },
 
                         valueColor =
-                            secondaryAccent,
+                            if (
+                                cypherReply ==
+                                "I couldn't connect to CypherOS."
+                            ) {
+                                Color.Red
+                            } else {
+                                secondaryAccent
+                            },
                     )
                 }
             }
@@ -739,7 +848,7 @@ fun CypherHomeScreen() {
                             speechRecognizer
                                 .cancel()
 
-                        } else {
+                        } else if (!isThinking) {
 
                             val permissionGranted =
                                 ContextCompat
@@ -805,10 +914,15 @@ fun CypherHomeScreen() {
 
                 Text(
                     text =
-                        if (isListening) {
-                            "STOP"
-                        } else {
-                            "MIC"
+                        when {
+                            isListening ->
+                                "STOP"
+
+                            isThinking ->
+                                "..."
+
+                            else ->
+                                "MIC"
                         },
 
                     color =
