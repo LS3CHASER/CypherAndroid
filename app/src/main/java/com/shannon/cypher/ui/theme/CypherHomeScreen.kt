@@ -1014,17 +1014,70 @@ fun CypherHomeScreen() {
     fun findMatchingEvents(message: String): List<CypherCalendarEvent> {
         val manager = calendarManager ?: return emptyList()
         val range = getCalendarDayRange(message)
-        val title = extractLookupTitle(message)
-
-        if (title.isBlank()) {
-            return manager.getEventsBetween(range.first, range.second)
-        }
-
-        return manager.findEvents(
-            titleWords = title,
+        val events = manager.getEventsBetween(
             startMillis = range.first,
             endMillis = range.second,
         )
+
+        if (events.isEmpty()) {
+            return emptyList()
+        }
+
+        val lookupTitle = extractLookupTitle(message)
+            .lowercase()
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        if (lookupTitle.isBlank()) {
+            return events
+        }
+
+        val exactMatches = events.filter { event ->
+            event.title
+                .lowercase()
+                .contains(lookupTitle)
+        }
+
+        if (exactMatches.isNotEmpty()) {
+            return exactMatches
+        }
+
+        val lookupWords = lookupTitle
+            .split(Regex("\\s+"))
+            .filter { it.length > 1 }
+
+        if (lookupWords.isEmpty()) {
+            return events
+        }
+
+        val scoredMatches = events.map { event ->
+            val eventWords = event.title
+                .lowercase()
+                .replace(Regex("[^a-z0-9\\s]"), " ")
+                .split(Regex("\\s+"))
+                .filter { it.length > 1 }
+
+            val score = lookupWords.count { lookupWord ->
+                eventWords.any { eventWord ->
+                    eventWord == lookupWord ||
+                            eventWord.startsWith(lookupWord) ||
+                            lookupWord.startsWith(eventWord)
+                }
+            }
+
+            Pair(event, score)
+        }
+
+        val bestScore = scoredMatches.maxOfOrNull { it.second } ?: 0
+
+        if (bestScore == 0) {
+            return emptyList()
+        }
+
+        return scoredMatches
+            .filter { it.second == bestScore }
+            .map { it.first }
     }
 
 
@@ -1042,18 +1095,7 @@ fun CypherHomeScreen() {
         val matches = findMatchingEvents(message)
 
         when {
-            matches.isEmpty() -> {
-                reply("I couldn't find a matching calendar event on that date.")
-            }
-
-            matches.size > 1 -> {
-                reply(
-                    "I found more than one matching event: ${describeMatches(matches)}. " +
-                            "Please tell me which one you want to delete."
-                )
-            }
-
-            else -> {
+            matches.size == 1 -> {
                 val event = matches.first()
                 pendingDeleteEvent = event
                 val date = SimpleDateFormat(
@@ -1065,6 +1107,45 @@ fun CypherHomeScreen() {
                     "I found ${event.title} on $date at ${formatTime(event.startTimeMillis)}. " +
                             "Do you want me to delete it?"
                 )
+            }
+
+            matches.size > 1 -> {
+                reply(
+                    "I found more than one matching event: ${describeMatches(matches)}. " +
+                            "Please tell me which one you want to delete."
+                )
+            }
+
+            else -> {
+                val eventsOnDate = getEventsForMessage(message)
+
+                when {
+                    eventsOnDate.isEmpty() -> {
+                        reply("I couldn't find any calendar events on that date.")
+                    }
+
+                    eventsOnDate.size == 1 -> {
+                        val event = eventsOnDate.first()
+                        pendingDeleteEvent = event
+                        val date = SimpleDateFormat(
+                            "EEEE d MMMM",
+                            Locale.getDefault(),
+                        ).format(event.startTimeMillis)
+
+                        reply(
+                            "I couldn't match the title exactly, but I found ${event.title} " +
+                                    "on $date at ${formatTime(event.startTimeMillis)}. " +
+                                    "Do you want me to delete it?"
+                        )
+                    }
+
+                    else -> {
+                        reply(
+                            "I couldn't match that title exactly. The events on that date are: " +
+                                    "${describeMatches(eventsOnDate)}. Please tell me which one you want to delete."
+                        )
+                    }
+                }
             }
         }
     }
