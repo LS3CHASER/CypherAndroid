@@ -64,6 +64,7 @@ import com.shannon.cypher.audio.CypherSpeechRecognizer
 import com.shannon.cypher.calendar.CypherCalendarDateParser
 import com.shannon.cypher.calendar.CypherCalendarEvent
 import com.shannon.cypher.calendar.CypherCalendarManager
+import com.shannon.cypher.memory.CypherMemoryRepository
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.ui.theme.CypherTheme
@@ -131,6 +132,18 @@ fun CypherHomeScreen() {
     val calendarManager = remember {
         if (isPreview) null else CypherCalendarManager(context)
     }
+
+
+    val memoryRepository =
+        remember {
+            if (isPreview) {
+                null
+            } else {
+                CypherMemoryRepository(
+                    context
+                )
+            }
+        }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1014,70 +1027,17 @@ fun CypherHomeScreen() {
     fun findMatchingEvents(message: String): List<CypherCalendarEvent> {
         val manager = calendarManager ?: return emptyList()
         val range = getCalendarDayRange(message)
-        val events = manager.getEventsBetween(
+        val title = extractLookupTitle(message)
+
+        if (title.isBlank()) {
+            return manager.getEventsBetween(range.first, range.second)
+        }
+
+        return manager.findEvents(
+            titleWords = title,
             startMillis = range.first,
             endMillis = range.second,
         )
-
-        if (events.isEmpty()) {
-            return emptyList()
-        }
-
-        val lookupTitle = extractLookupTitle(message)
-            .lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        if (lookupTitle.isBlank()) {
-            return events
-        }
-
-        val exactMatches = events.filter { event ->
-            event.title
-                .lowercase()
-                .contains(lookupTitle)
-        }
-
-        if (exactMatches.isNotEmpty()) {
-            return exactMatches
-        }
-
-        val lookupWords = lookupTitle
-            .split(Regex("\\s+"))
-            .filter { it.length > 1 }
-
-        if (lookupWords.isEmpty()) {
-            return events
-        }
-
-        val scoredMatches = events.map { event ->
-            val eventWords = event.title
-                .lowercase()
-                .replace(Regex("[^a-z0-9\\s]"), " ")
-                .split(Regex("\\s+"))
-                .filter { it.length > 1 }
-
-            val score = lookupWords.count { lookupWord ->
-                eventWords.any { eventWord ->
-                    eventWord == lookupWord ||
-                            eventWord.startsWith(lookupWord) ||
-                            lookupWord.startsWith(eventWord)
-                }
-            }
-
-            Pair(event, score)
-        }
-
-        val bestScore = scoredMatches.maxOfOrNull { it.second } ?: 0
-
-        if (bestScore == 0) {
-            return emptyList()
-        }
-
-        return scoredMatches
-            .filter { it.second == bestScore }
-            .map { it.first }
     }
 
 
@@ -1095,7 +1055,18 @@ fun CypherHomeScreen() {
         val matches = findMatchingEvents(message)
 
         when {
-            matches.size == 1 -> {
+            matches.isEmpty() -> {
+                reply("I couldn't find a matching calendar event on that date.")
+            }
+
+            matches.size > 1 -> {
+                reply(
+                    "I found more than one matching event: ${describeMatches(matches)}. " +
+                            "Please tell me which one you want to delete."
+                )
+            }
+
+            else -> {
                 val event = matches.first()
                 pendingDeleteEvent = event
                 val date = SimpleDateFormat(
@@ -1107,45 +1078,6 @@ fun CypherHomeScreen() {
                     "I found ${event.title} on $date at ${formatTime(event.startTimeMillis)}. " +
                             "Do you want me to delete it?"
                 )
-            }
-
-            matches.size > 1 -> {
-                reply(
-                    "I found more than one matching event: ${describeMatches(matches)}. " +
-                            "Please tell me which one you want to delete."
-                )
-            }
-
-            else -> {
-                val eventsOnDate = getEventsForMessage(message)
-
-                when {
-                    eventsOnDate.isEmpty() -> {
-                        reply("I couldn't find any calendar events on that date.")
-                    }
-
-                    eventsOnDate.size == 1 -> {
-                        val event = eventsOnDate.first()
-                        pendingDeleteEvent = event
-                        val date = SimpleDateFormat(
-                            "EEEE d MMMM",
-                            Locale.getDefault(),
-                        ).format(event.startTimeMillis)
-
-                        reply(
-                            "I couldn't match the title exactly, but I found ${event.title} " +
-                                    "on $date at ${formatTime(event.startTimeMillis)}. " +
-                                    "Do you want me to delete it?"
-                        )
-                    }
-
-                    else -> {
-                        reply(
-                            "I couldn't match that title exactly. The events on that date are: " +
-                                    "${describeMatches(eventsOnDate)}. Please tell me which one you want to delete."
-                        )
-                    }
-                }
             }
         }
     }
@@ -1383,6 +1315,550 @@ fun CypherHomeScreen() {
     }
 
 
+
+    fun isMemoryRememberRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            message
+                .lowercase()
+                .trim()
+
+        return (
+                lower.startsWith("remember that ") ||
+                        lower.startsWith("remember my ") ||
+                        lower.startsWith("remember i ") ||
+                        lower.startsWith("remember i'm ") ||
+                        lower.startsWith("remember im ") ||
+                        lower.startsWith("actually, my ") ||
+                        lower.startsWith("actually my ") ||
+                        lower.startsWith("my ") ||
+                        lower.startsWith("change my ") ||
+                        lower.startsWith("update my ")
+                )
+    }
+
+
+    fun isMemoryRecallRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            message
+                .lowercase()
+                .trim()
+
+        return (
+                lower.startsWith(
+                    "what's my "
+                ) ||
+                        lower.startsWith(
+                            "whats my "
+                        ) ||
+                        lower.startsWith(
+                            "what is my "
+                        ) ||
+                        lower.startsWith(
+                            "do you remember my "
+                        ) ||
+                        lower.startsWith(
+                            "what did i tell you about "
+                        )
+                )
+    }
+
+
+    fun isMemoryListRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            message
+                .lowercase()
+                .trim()
+
+        return (
+                "what do you remember about me" in lower ||
+                        "what do you remember" in lower ||
+                        "what have you remembered" in lower
+                )
+    }
+
+
+    fun isMemoryForgetRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            message
+                .lowercase()
+                .trim()
+
+        return (
+                lower.startsWith(
+                    "forget my "
+                ) ||
+                        lower.startsWith(
+                            "forget that "
+                        )
+                )
+    }
+
+
+    fun parseMemoryRememberRequest(
+        message: String,
+    ): Pair<String, String>? {
+
+        var cleaned =
+            message
+                .trim()
+                .trimEnd(
+                    '.',
+                    '!',
+                    '?',
+                )
+
+
+        cleaned =
+            cleaned.replace(
+                Regex(
+                    "(?i)^actually,?\\s+"
+                ),
+                ""
+            )
+
+
+        cleaned =
+            cleaned.replace(
+                Regex(
+                    "(?i)^remember(?:\\s+that)?\\s+"
+                ),
+                ""
+            )
+
+
+        cleaned =
+            cleaned.replace(
+                Regex(
+                    "(?i)^(change|update)\\s+my\\s+"
+                ),
+                "my "
+            )
+
+
+        val patterns =
+            listOf(
+                Regex(
+                    "(?i)^my\\s+(.+?)\\s+is\\s+(.+)$"
+                ),
+
+                Regex(
+                    "(?i)^my\\s+(.+?)\\s+are\\s+(.+)$"
+                ),
+
+                Regex(
+                    "(?i)^my\\s+(.+?)\\s+to\\s+(.+)$"
+                ),
+
+                Regex(
+                    "(?i)^i(?:'m|\\s+am)\\s+(.+)$"
+                ),
+            )
+
+
+        for (
+        pattern in patterns
+        ) {
+
+            val match =
+                pattern.find(
+                    cleaned
+                )
+                    ?: continue
+
+
+            if (
+                match.groupValues.size == 2
+            ) {
+
+                val value =
+                    match
+                        .groupValues[1]
+                        .trim()
+                        .removeSuffix(
+                            " now"
+                        )
+                        .trim()
+
+
+                if (
+                    value.isBlank()
+                ) {
+
+                    return null
+                }
+
+
+                return Pair(
+                    "i am",
+                    value,
+                )
+            }
+
+
+            val key =
+                match
+                    .groupValues[1]
+                    .trim()
+
+
+            var value =
+                match
+                    .groupValues[2]
+                    .trim()
+
+
+            value =
+                value
+                    .removeSuffix(
+                        " now"
+                    )
+                    .trim()
+
+
+            if (
+                key.isBlank() ||
+                value.isBlank()
+            ) {
+
+                return null
+            }
+
+
+            return Pair(
+                key,
+                value,
+            )
+        }
+
+
+        return null
+    }
+
+
+    fun parseMemoryRecallKey(
+        message: String,
+    ): String? {
+
+        val cleaned =
+            message
+                .lowercase()
+                .trim()
+                .trimEnd(
+                    '.',
+                    '!',
+                    '?',
+                )
+
+
+        val patterns =
+            listOf(
+                Regex(
+                    "^what's my (.+)$"
+                ),
+
+                Regex(
+                    "^whats my (.+)$"
+                ),
+
+                Regex(
+                    "^what is my (.+)$"
+                ),
+
+                Regex(
+                    "^do you remember my (.+)$"
+                ),
+
+                Regex(
+                    "^what did i tell you about (.+)$"
+                ),
+            )
+
+
+        for (
+        pattern in patterns
+        ) {
+
+            val match =
+                pattern.find(
+                    cleaned
+                )
+
+
+            if (
+                match != null
+            ) {
+
+                return match
+                    .groupValues[1]
+                    .trim()
+            }
+        }
+
+
+        return null
+    }
+
+
+    fun parseMemoryForgetKey(
+        message: String,
+    ): String? {
+
+        val cleaned =
+            message
+                .lowercase()
+                .trim()
+                .trimEnd(
+                    '.',
+                    '!',
+                    '?',
+                )
+
+
+        val patterns =
+            listOf(
+                Regex(
+                    "^forget my (.+)$"
+                ),
+
+                Regex(
+                    "^forget that (.+)$"
+                ),
+            )
+
+
+        for (
+        pattern in patterns
+        ) {
+
+            val match =
+                pattern.find(
+                    cleaned
+                )
+
+
+            if (
+                match != null
+            ) {
+
+                return match
+                    .groupValues[1]
+                    .trim()
+            }
+        }
+
+
+        return null
+    }
+
+
+    fun handleMemoryRemember(
+        message: String,
+    ) {
+
+        val repository =
+            memoryRepository
+                ?: return
+
+
+        val request =
+            parseMemoryRememberRequest(
+                message
+            )
+
+
+        if (
+            request == null
+        ) {
+
+            reply(
+                "I understood that as a memory request, " +
+                        "but I couldn't work out what you wanted me to remember."
+            )
+
+            return
+        }
+
+
+        coroutineScope.launch {
+
+            repository.remember(
+                key =
+                    request.first,
+
+                value =
+                    request.second,
+            )
+
+
+            reply(
+                "Got it. I'll remember that your " +
+                        "${request.first} is ${request.second}."
+            )
+        }
+    }
+
+
+    fun handleMemoryRecall(
+        message: String,
+    ) {
+
+        val repository =
+            memoryRepository
+                ?: return
+
+
+        val key =
+            parseMemoryRecallKey(
+                message
+            )
+
+
+        if (
+            key == null
+        ) {
+
+            reply(
+                "I couldn't work out which memory you wanted."
+            )
+
+            return
+        }
+
+
+        coroutineScope.launch {
+
+            val value =
+                repository.recall(
+                    key
+                )
+
+
+            if (
+                value == null
+            ) {
+
+                reply(
+                    "I don't have anything saved for your $key."
+                )
+
+            } else {
+
+                reply(
+                    "Your $key is $value."
+                )
+            }
+        }
+    }
+
+
+    fun handleMemoryList() {
+
+        val repository =
+            memoryRepository
+                ?: return
+
+
+        coroutineScope.launch {
+
+            val memories =
+                repository.getAll()
+
+
+            if (
+                memories.isEmpty()
+            ) {
+
+                reply(
+                    "I don't have any saved memories yet."
+                )
+
+                return@launch
+            }
+
+
+            val description =
+                memories
+                    .entries
+                    .joinToString(
+                        "; "
+                    ) { entry ->
+
+                        "your ${entry.key} is ${entry.value}"
+                    }
+
+
+            reply(
+                "I remember that $description."
+            )
+        }
+    }
+
+
+    fun handleMemoryForget(
+        message: String,
+    ) {
+
+        val repository =
+            memoryRepository
+                ?: return
+
+
+        val key =
+            parseMemoryForgetKey(
+                message
+            )
+
+
+        if (
+            key == null
+        ) {
+
+            reply(
+                "I couldn't work out which memory you wanted me to forget."
+            )
+
+            return
+        }
+
+
+        coroutineScope.launch {
+
+            val removed =
+                repository.forget(
+                    key
+                )
+
+
+            if (
+                removed
+            ) {
+
+                reply(
+                    "Done. I've forgotten your $key."
+                )
+
+            } else {
+
+                reply(
+                    "I don't have a saved memory for your $key."
+                )
+            }
+        }
+    }
+
+
     fun sendMessageToCypherOS(message: String) {
         if (message.isBlank()) return
 
@@ -1456,6 +1932,41 @@ fun CypherHomeScreen() {
 
                     isCalendarCreateRequest(normalizedText) -> {
                         requestCalendarCreate(normalizedText)
+                    }
+
+
+                    isMemoryRememberRequest(
+                        normalizedText
+                    ) -> {
+
+                        handleMemoryRemember(
+                            normalizedText
+                        )
+                    }
+
+                    isMemoryRecallRequest(
+                        normalizedText
+                    ) -> {
+
+                        handleMemoryRecall(
+                            normalizedText
+                        )
+                    }
+
+                    isMemoryListRequest(
+                        normalizedText
+                    ) -> {
+
+                        handleMemoryList()
+                    }
+
+                    isMemoryForgetRequest(
+                        normalizedText
+                    ) -> {
+
+                        handleMemoryForget(
+                            normalizedText
+                        )
                     }
 
                     isNextAppointmentRequest(normalizedText) -> {
