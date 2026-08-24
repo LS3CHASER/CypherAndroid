@@ -65,6 +65,7 @@ import com.shannon.cypher.calendar.CypherCalendarDateParser
 import com.shannon.cypher.calendar.CypherCalendarEvent
 import com.shannon.cypher.calendar.CypherCalendarManager
 import com.shannon.cypher.memory.CypherMemoryRepository
+import com.shannon.cypher.tasks.CypherTaskRepository
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.ui.theme.CypherTheme
@@ -144,6 +145,18 @@ fun CypherHomeScreen() {
                 )
             }
         }
+
+    val taskRepository =
+        remember {
+            if (isPreview) {
+                null
+            } else {
+                CypherTaskRepository(
+                    context
+                )
+            }
+        }
+
 
     DisposableEffect(Unit) {
         onDispose {
@@ -1859,6 +1872,232 @@ fun CypherHomeScreen() {
     }
 
 
+    fun isTaskAddRequest(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        val hasTarget = listOf("to-do list", "to do list", "todo list", "task list", "my tasks").any { it in lower }
+        val hasIntent = listOf("add ", "create ", "put ").any { lower.startsWith(it) }
+        return hasTarget && hasIntent
+    }
+
+
+    fun isTaskListRequest(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        return listOf(
+            "what's on my to-do list",
+            "whats on my to-do list",
+            "what is on my to-do list",
+            "what's on my to do list",
+            "whats on my to do list",
+            "what is on my to do list",
+            "what's on my todo list",
+            "whats on my todo list",
+            "what is on my todo list",
+            "what tasks do i have",
+            "what tasks have i got",
+            "what are my tasks",
+            "show my tasks",
+            "show me my tasks",
+            "show my to-do list",
+            "show my to do list",
+            "show my todo list",
+            "read my tasks",
+            "read my to-do list",
+            "read my to do list",
+            "read my todo list",
+        ).any { it in lower }
+    }
+
+
+    fun isTaskCompleteRequest(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        return (
+                lower.startsWith("mark ") &&
+                        (
+                                " as done" in lower ||
+                                        " as complete" in lower ||
+                                        " as completed" in lower
+                                )
+                ) ||
+                lower.startsWith("complete ") ||
+                lower.startsWith("finish ")
+    }
+
+
+    fun isTaskDeleteRequest(message: String): Boolean {
+        val lower = message.lowercase().trim()
+        val deleteIntent = lower.startsWith("remove ") || lower.startsWith("delete ")
+        val taskTarget = listOf(
+            "from my to-do list",
+            "from my to do list",
+            "from my todo list",
+            "from my task list",
+            "from my tasks",
+        ).any { it in lower }
+        return deleteIntent && taskTarget
+    }
+
+
+    fun extractTaskAddTitle(message: String): String {
+        var title = message.trim().trimEnd('.', '!', '?')
+        title = title.replace(Regex("(?i)^(add|create|put)\\s+"), "")
+        title = title.replace(
+            Regex("(?i)\\s+(?:to|on|in)\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
+            ""
+        )
+        title = title.replace(
+            Regex("(?i)\\s+(?:to|on|in)\\s+my\\s+tasks$"),
+            ""
+        )
+        return title.replace(Regex("\\s+"), " ").trim()
+    }
+
+
+    fun extractTaskCompleteTitle(message: String): String {
+        var title = message.trim().trimEnd('.', '!', '?')
+        title = title.replace(Regex("(?i)^mark\\s+"), "")
+        title = title.replace(
+            Regex("(?i)\\s+as\\s+(?:done|complete|completed)$"),
+            ""
+        )
+        title = title.replace(Regex("(?i)^(complete|finish)\\s+"), "")
+        title = title.replace(Regex("(?i)^(the\\s+)?task\\s+"), "")
+        return title.replace(Regex("\\s+"), " ").trim()
+    }
+
+
+    fun extractTaskDeleteTitle(message: String): String {
+        var title = message.trim().trimEnd('.', '!', '?')
+        title = title.replace(Regex("(?i)^(remove|delete)\\s+"), "")
+        title = title.replace(
+            Regex("(?i)\\s+from\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
+            ""
+        )
+        title = title.replace(
+            Regex("(?i)\\s+from\\s+my\\s+tasks$"),
+            ""
+        )
+        title = title.replace(Regex("(?i)^(the\\s+)?task\\s+"), "")
+        return title.replace(Regex("\\s+"), " ").trim()
+    }
+
+
+    fun handleTaskAdd(message: String) {
+        val repository = taskRepository ?: return
+        val title = extractTaskAddTitle(message)
+
+        if (title.isBlank()) {
+            reply("I couldn't work out what you wanted me to add to your to-do list.")
+            return
+        }
+
+        coroutineScope.launch {
+            val taskId =
+                repository.addTask(
+                    title
+                )
+
+            val savedTask =
+                if (
+                    taskId > 0
+                ) {
+                    repository.getTaskById(
+                        taskId
+                    )
+                } else {
+                    null
+                }
+
+            if (
+                savedTask != null
+            ) {
+                reply(
+                    "Saved locally. I've added ${savedTask.title} to your to-do list."
+                )
+            } else {
+                reply(
+                    "I couldn't save that task locally."
+                )
+            }
+        }
+    }
+
+
+    fun handleTaskList() {
+        val repository = taskRepository ?: return
+
+        coroutineScope.launch {
+            val tasks = repository.getOpenTasks()
+
+            if (tasks.isEmpty()) {
+                reply("Your to-do list is empty.")
+                return@launch
+            }
+
+            val description =
+                tasks
+                    .take(10)
+                    .mapIndexed { index, task ->
+                        "${index + 1}. ${task.title}"
+                    }
+                    .joinToString(". ")
+
+            val extra =
+                if (tasks.size > 10) {
+                    " You also have ${tasks.size - 10} more tasks."
+                } else {
+                    ""
+                }
+
+            reply(
+                "You have ${tasks.size} open ${if (tasks.size == 1) "task" else "tasks"}. " +
+                        "$description.$extra"
+            )
+        }
+    }
+
+
+    fun handleTaskComplete(message: String) {
+        val repository = taskRepository ?: return
+        val title = extractTaskCompleteTitle(message)
+
+        if (title.isBlank()) {
+            reply("I couldn't work out which task you wanted to complete.")
+            return
+        }
+
+        coroutineScope.launch {
+            val task = repository.completeTask(title)
+
+            if (task == null) {
+                reply("I couldn't find an open task matching $title.")
+            } else {
+                reply("Done. I've marked ${task.title} as complete.")
+            }
+        }
+    }
+
+
+    fun handleTaskDelete(message: String) {
+        val repository = taskRepository ?: return
+        val title = extractTaskDeleteTitle(message)
+
+        if (title.isBlank()) {
+            reply("I couldn't work out which task you wanted to remove.")
+            return
+        }
+
+        coroutineScope.launch {
+            val task = repository.deleteTask(title)
+
+            if (task == null) {
+                reply("I couldn't find an open task matching $title.")
+            } else {
+                reply("Done. I've removed ${task.title} from your to-do list.")
+            }
+        }
+    }
+
+
     fun sendMessageToCypherOS(message: String) {
         if (message.isBlank()) return
 
@@ -1932,6 +2171,37 @@ fun CypherHomeScreen() {
 
                     isCalendarCreateRequest(normalizedText) -> {
                         requestCalendarCreate(normalizedText)
+                    }
+
+
+                    isTaskAddRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskAdd(
+                            normalizedText
+                        )
+                    }
+
+                    isTaskListRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskList()
+                    }
+
+                    isTaskCompleteRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskComplete(
+                            normalizedText
+                        )
+                    }
+
+                    isTaskDeleteRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskDelete(
+                            normalizedText
+                        )
                     }
 
 
