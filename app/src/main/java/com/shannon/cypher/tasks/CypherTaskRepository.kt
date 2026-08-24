@@ -129,9 +129,6 @@ class CypherTaskRepository(
         }
 
 
-        /*
-         * 1. Exact / partial match after speech normalisation.
-         */
         val directMatches =
             openTasks.filter {
                     task ->
@@ -160,22 +157,6 @@ class CypherTaskRepository(
         }
 
 
-        /*
-         * 2. Score every open task using several voice-friendly
-         *    representations:
-         *
-         *    - normalised words
-         *    - joined words
-         *    - consonant / phonetic skeleton
-         *    - word-by-word fuzzy similarity
-         *
-         * This helps with speech recognition mistakes such as:
-         *
-         * buy coolant -> by coolant
-         * buy coolant -> bicolon
-         * buy filters -> by filters
-         * four bolts -> for bolts
-         */
         val scored =
             openTasks
                 .map {
@@ -205,10 +186,6 @@ class CypherTaskRepository(
                 ?: 0.0
 
 
-        /*
-         * If there is only one open task, we can be more tolerant
-         * because there is no competing task to confuse it with.
-         */
         if (
             openTasks.size == 1 &&
             best.second >= 0.46
@@ -220,10 +197,6 @@ class CypherTaskRepository(
         }
 
 
-        /*
-         * With multiple tasks, require a stronger match and a
-         * useful gap over the second-best candidate.
-         */
         if (
             best.second >= 0.62 &&
             (
@@ -238,10 +211,6 @@ class CypherTaskRepository(
         }
 
 
-        /*
-         * If several tasks score strongly and similarly, return
-         * all plausible matches rather than guessing.
-         */
         return scored
             .filter {
                 it.second >= 0.70
@@ -288,6 +257,40 @@ class CypherTaskRepository(
 
                 completedAtMillis =
                     System.currentTimeMillis(),
+            )
+        )
+
+
+        return true
+    }
+
+
+    suspend fun reopenTask(
+        taskId: Long,
+    ): Boolean {
+
+        val task =
+            taskDao.getById(
+                taskId
+            )
+                ?: return false
+
+
+        if (
+            !task.isCompleted
+        ) {
+
+            return true
+        }
+
+
+        taskDao.update(
+            task.copy(
+                isCompleted =
+                    false,
+
+                completedAtMillis =
+                    null,
             )
         )
 
@@ -407,15 +410,11 @@ class CypherTaskRepository(
             mapOf(
                 "by" to "buy",
                 "bye" to "buy",
-
                 "four" to "for",
                 "fore" to "for",
-
                 "two" to "to",
                 "too" to "to",
-
                 "won" to "one",
-
                 "ate" to "eight",
             )
 
@@ -526,11 +525,6 @@ class CypherTaskRepository(
             )
 
 
-        /*
-         * Weighted toward whole-phrase and phonetic similarity.
-         * The phonetic component helps when speech recognition
-         * collapses several spoken words into one strange word.
-         */
         return (
                 phraseScore * 0.25
                 ) + (

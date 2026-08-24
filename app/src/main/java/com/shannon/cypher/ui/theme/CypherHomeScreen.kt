@@ -68,6 +68,9 @@ import com.shannon.cypher.memory.CypherMemoryRepository
 import com.shannon.cypher.tasks.CypherTaskRepository
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
+import com.shannon.cypher.navigation.CypherScreen
+import com.shannon.cypher.ui.navigation.CypherMenuOverlay
+import com.shannon.cypher.ui.tasks.CypherTaskScreen
 import com.shannon.cypher.ui.theme.CypherTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -108,6 +111,20 @@ fun CypherHomeScreen() {
     var microphoneLevel by remember { mutableStateOf(0f) }
     var recognizedText by remember { mutableStateOf("") }
     var cypherReply by remember { mutableStateOf("") }
+
+    var currentScreen by
+    remember {
+        mutableStateOf(
+            CypherScreen.HOME
+        )
+    }
+
+    var isMenuOpen by
+    remember {
+        mutableStateOf(
+            false
+        )
+    }
 
     var pendingCalendarTarget by remember { mutableStateOf("today") }
     var pendingCalendarCreateRequest by remember {
@@ -1880,6 +1897,36 @@ fun CypherHomeScreen() {
     }
 
 
+    fun isTaskScreenRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            message
+                .lowercase()
+                .trim()
+
+        return listOf(
+            "show me my to-do list",
+            "show me my to do list",
+            "show me my todo list",
+            "show my to-do list",
+            "show my to do list",
+            "show my todo list",
+            "open my to-do list",
+            "open my to do list",
+            "open my todo list",
+            "show me my tasks",
+            "show my tasks",
+            "open my tasks",
+            "open task list",
+            "open my task list",
+        ).any { phrase ->
+            phrase in lower
+        }
+    }
+
+
     fun isTaskListRequest(message: String): Boolean {
         val lower = message.lowercase().trim()
         return listOf(
@@ -2182,6 +2229,22 @@ fun CypherHomeScreen() {
                         )
                     }
 
+                    isTaskScreenRequest(
+                        normalizedText
+                    ) -> {
+
+                        currentScreen =
+                            CypherScreen.TASKS
+
+                        isMenuOpen =
+                            false
+
+                        reply(
+                            "Opening your to-do list."
+                        )
+                    }
+
+
                     isTaskListRequest(
                         normalizedText
                     ) -> {
@@ -2266,6 +2329,45 @@ fun CypherHomeScreen() {
                 isListening = false
             }
         }
+
+
+    fun handleMicClick() {
+
+        when {
+
+            isListening -> {
+                speechRecognizer
+                    ?.cancel()
+            }
+
+            isSpeaking -> {
+                stopSpeaking()
+            }
+
+            !isThinking -> {
+
+                val permissionGranted =
+                    ContextCompat
+                        .checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO,
+                        ) ==
+                            PackageManager.PERMISSION_GRANTED
+
+                if (
+                    permissionGranted
+                ) {
+                    startListening()
+                } else {
+                    microphonePermissionLauncher
+                        .launch(
+                            Manifest.permission.RECORD_AUDIO
+                        )
+                }
+            }
+        }
+    }
+
 
     val currentHour =
         Calendar
@@ -2369,843 +2471,984 @@ fun CypherHomeScreen() {
     )
 
 
-    Surface(
+    Box(
         modifier =
             Modifier.fillMaxSize(),
-
-        color =
-            background,
     ) {
 
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(
-                        horizontal =
-                            24.dp,
-
-                        vertical =
-                            40.dp,
-                    ),
-
-            horizontalAlignment =
-                Alignment.CenterHorizontally,
+        when (
+            currentScreen
         ) {
 
+            CypherScreen.HOME -> {
 
-            Text(
-                text =
-                    "C Y P H E R",
-
-                color =
-                    accent,
-
-                fontSize =
-                    28.sp,
-
-                fontWeight =
-                    FontWeight.Light,
-
-                letterSpacing =
-                    8.sp,
-            )
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-
-            Text(
-                text =
-                    when {
-
-                        isListening ->
-                            "LISTENING"
-
-                        isThinking ->
-                            "THINKING"
-
-                        isSpeaking ->
-                            "SPEAKING"
-
-                        else ->
-                            "SYSTEM ONLINE"
-                    },
-
-                color =
-                    when {
-
-                        isListening ->
-                            secondaryAccent
-
-                        isThinking ->
-                            accent
-
-                        isSpeaking ->
-                            secondaryAccent
-
-                        else ->
-                            secondaryText
-                    },
-
-                fontSize =
-                    12.sp,
-
-                letterSpacing =
-                    3.sp,
-            )
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        56.dp
-                    )
-            )
-
-
-            Box(
-                modifier =
-                    Modifier
-                        .size(
-                            220.dp
-                        )
-                        .scale(
-
-                            if (
-                                isListening
-                            ) {
-
-                                1.0f
-
-                            } else {
-
-                                idlePulse
-                            }
-                        ),
-
-                contentAlignment =
-                    Alignment.Center,
-            ) {
-
-
-                Canvas(
+                Surface(
                     modifier =
-                        Modifier.fillMaxSize()
+                        Modifier.fillMaxSize(),
+
+                    color =
+                        background,
                 ) {
 
-                    val centerX =
-                        size.width /
-                                2f
+                    Column(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    horizontal =
+                                        24.dp,
 
+                                    vertical =
+                                        40.dp,
+                                ),
 
-                    val centerY =
-                        size.height /
-                                2f
-
-
-                    val baseRadius =
-                        (
-                                size.minDimension /
-                                        2f
-                                ) -
-                                6.dp.toPx()
-
-
-                    val waveStrength =
-                        if (
-                            isListening
-                        ) {
-
-                            microphoneLevel *
-                                    18.dp.toPx()
-
-                        } else {
-
-                            0f
-                        }
-
-
-                    val path =
-                        Path()
-
-
-                    val points =
-                        180
-
-
-                    for (
-                    index in
-                    0..points
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally,
                     ) {
 
-                        val angle =
-                            (
-                                    index.toFloat() /
-                                            points.toFloat()
-                                    ) *
-                                    (
-                                            Math.PI *
-                                                    2.0
-                                            )
+
+                        Text(
+                            text =
+                                "C Y P H E R",
+
+                            color =
+                                accent,
+
+                            fontSize =
+                                28.sp,
+
+                            fontWeight =
+                                FontWeight.Light,
+
+                            letterSpacing =
+                                8.sp,
+                        )
 
 
-                        val wave =
-                            sin(
-                                angle *
-                                        12.0
-                            )
-                                .toFloat()
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    12.dp
+                                )
+                        )
 
 
-                        val radius =
-                            baseRadius +
-                                    (
-                                            wave *
-                                                    waveStrength
-                                            )
+                        Text(
+                            text =
+                                when {
+
+                                    isListening ->
+                                        "LISTENING"
+
+                                    isThinking ->
+                                        "THINKING"
+
+                                    isSpeaking ->
+                                        "SPEAKING"
+
+                                    else ->
+                                        "SYSTEM ONLINE"
+                                },
+
+                            color =
+                                when {
+
+                                    isListening ->
+                                        secondaryAccent
+
+                                    isThinking ->
+                                        accent
+
+                                    isSpeaking ->
+                                        secondaryAccent
+
+                                    else ->
+                                        secondaryText
+                                },
+
+                            fontSize =
+                                12.sp,
+
+                            letterSpacing =
+                                3.sp,
+                        )
 
 
-                        val x =
-                            centerX +
-                                    cos(
-                                        angle
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    56.dp
+                                )
+                        )
+
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(
+                                        220.dp
                                     )
-                                        .toFloat() *
-                                    radius
+                                    .scale(
 
+                                        if (
+                                            isListening
+                                        ) {
 
-                        val y =
-                            centerY +
-                                    sin(
-                                        angle
-                                    )
-                                        .toFloat() *
-                                    radius
+                                            1.0f
 
+                                        } else {
 
-                        if (
-                            index == 0
+                                            idlePulse
+                                        }
+                                    ),
+
+                            contentAlignment =
+                                Alignment.Center,
                         ) {
 
-                            path.moveTo(
-                                x,
-                                y
-                            )
 
-                        } else {
-
-                            path.lineTo(
-                                x,
-                                y
-                            )
-                        }
-                    }
-
-
-                    path.close()
-
-
-                    drawPath(
-                        path =
-                            path,
-
-                        color =
-                            if (
-                                isListening
+                            Canvas(
+                                modifier =
+                                    Modifier.fillMaxSize()
                             ) {
 
-                                secondaryAccent
+                                val centerX =
+                                    size.width /
+                                            2f
 
-                            } else {
 
-                                accent
-                            },
+                                val centerY =
+                                    size.height /
+                                            2f
 
-                        style =
-                            Stroke(
-                                width =
-                                    2.dp.toPx(),
 
-                                cap =
-                                    StrokeCap.Round,
-                            ),
-                    )
+                                val baseRadius =
+                                    (
+                                            size.minDimension /
+                                                    2f
+                                            ) -
+                                            6.dp.toPx()
+
+
+                                val waveStrength =
+                                    if (
+                                        isListening
+                                    ) {
+
+                                        microphoneLevel *
+                                                18.dp.toPx()
+
+                                    } else {
+
+                                        0f
+                                    }
+
+
+                                val path =
+                                    Path()
+
+
+                                val points =
+                                    180
+
+
+                                for (
+                                index in
+                                0..points
+                                ) {
+
+                                    val angle =
+                                        (
+                                                index.toFloat() /
+                                                        points.toFloat()
+                                                ) *
+                                                (
+                                                        Math.PI *
+                                                                2.0
+                                                        )
+
+
+                                    val wave =
+                                        sin(
+                                            angle *
+                                                    12.0
+                                        )
+                                            .toFloat()
+
+
+                                    val radius =
+                                        baseRadius +
+                                                (
+                                                        wave *
+                                                                waveStrength
+                                                        )
+
+
+                                    val x =
+                                        centerX +
+                                                cos(
+                                                    angle
+                                                )
+                                                    .toFloat() *
+                                                radius
+
+
+                                    val y =
+                                        centerY +
+                                                sin(
+                                                    angle
+                                                )
+                                                    .toFloat() *
+                                                radius
+
+
+                                    if (
+                                        index == 0
+                                    ) {
+
+                                        path.moveTo(
+                                            x,
+                                            y
+                                        )
+
+                                    } else {
+
+                                        path.lineTo(
+                                            x,
+                                            y
+                                        )
+                                    }
+                                }
+
+
+                                path.close()
+
+
+                                drawPath(
+                                    path =
+                                        path,
+
+                                    color =
+                                        if (
+                                            isListening
+                                        ) {
+
+                                            secondaryAccent
+
+                                        } else {
+
+                                            accent
+                                        },
+
+                                    style =
+                                        Stroke(
+                                            width =
+                                                2.dp.toPx(),
+
+                                            cap =
+                                                StrokeCap.Round,
+                                        ),
+                                )
+                            }
+
+
+                            Box(
+                                modifier =
+                                    Modifier.size(
+                                        160.dp
+                                    ),
+
+                                contentAlignment =
+                                    Alignment.Center,
+                            ) {
+
+
+                                Canvas(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .rotate(
+                                                middleRotation
+                                            )
+                                ) {
+
+                                    val strokeWidth =
+                                        3.dp.toPx()
+
+
+                                    val arcSize =
+                                        Size(
+
+                                            width =
+                                                size.width -
+                                                        strokeWidth,
+
+                                            height =
+                                                size.height -
+                                                        strokeWidth,
+                                        )
+
+
+                                    val topLeft =
+                                        Offset(
+
+                                            x =
+                                                strokeWidth /
+                                                        2,
+
+                                            y =
+                                                strokeWidth /
+                                                        2,
+                                        )
+
+
+                                    drawArc(
+                                        color =
+                                            accent,
+
+                                        startAngle =
+                                            -90f,
+
+                                        sweepAngle =
+                                            70f,
+
+                                        useCenter =
+                                            false,
+
+                                        topLeft =
+                                            topLeft,
+
+                                        size =
+                                            arcSize,
+
+                                        style =
+                                            Stroke(
+                                                width =
+                                                    strokeWidth,
+
+                                                cap =
+                                                    StrokeCap.Round,
+                                            ),
+                                    )
+
+
+                                    drawArc(
+                                        color =
+                                            accent,
+
+                                        startAngle =
+                                            20f,
+
+                                        sweepAngle =
+                                            85f,
+
+                                        useCenter =
+                                            false,
+
+                                        topLeft =
+                                            topLeft,
+
+                                        size =
+                                            arcSize,
+
+                                        style =
+                                            Stroke(
+                                                width =
+                                                    strokeWidth,
+
+                                                cap =
+                                                    StrokeCap.Round,
+                                            ),
+                                    )
+
+
+                                    drawArc(
+                                        color =
+                                            secondaryAccent,
+
+                                        startAngle =
+                                            145f,
+
+                                        sweepAngle =
+                                            45f,
+
+                                        useCenter =
+                                            false,
+
+                                        topLeft =
+                                            topLeft,
+
+                                        size =
+                                            arcSize,
+
+                                        style =
+                                            Stroke(
+                                                width =
+                                                    strokeWidth,
+
+                                                cap =
+                                                    StrokeCap.Round,
+                                            ),
+                                    )
+
+
+                                    drawArc(
+                                        color =
+                                            accent,
+
+                                        startAngle =
+                                            220f,
+
+                                        sweepAngle =
+                                            95f,
+
+                                        useCenter =
+                                            false,
+
+                                        topLeft =
+                                            topLeft,
+
+                                        size =
+                                            arcSize,
+
+                                        style =
+                                            Stroke(
+                                                width =
+                                                    strokeWidth,
+
+                                                cap =
+                                                    StrokeCap.Round,
+                                            ),
+                                    )
+                                }
+
+
+                                Image(
+                                    painter =
+                                        painterResource(
+                                            id =
+                                                R.drawable
+                                                    .cypher_head
+                                        ),
+
+                                    contentDescription =
+                                        "Cypher",
+
+                                    modifier =
+                                        Modifier.size(
+                                            105.dp
+                                        ),
+                                )
+                            }
+                        }
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    38.dp
+                                )
+                        )
+
+
+                        Text(
+                            text =
+                                greeting,
+
+                            color =
+                                Color.White,
+
+                            fontSize =
+                                20.sp,
+
+                            fontWeight =
+                                FontWeight.Medium,
+                        )
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    10.dp
+                                )
+                        )
+
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(
+                                        min = 40.dp,
+                                        max = 140.dp,
+                                    )
+                                    .verticalScroll(
+                                        rememberScrollState()
+                                    ),
+                        ) {
+
+                            Text(
+                                text =
+                                    when {
+
+                                        isListening ->
+                                            "I'm listening..."
+
+                                        isThinking ->
+                                            "Thinking..."
+
+                                        cypherReply
+                                            .isNotBlank() ->
+                                            cypherReply
+
+                                        recognizedText
+                                            .isNotBlank() ->
+                                            recognizedText
+
+                                        else ->
+                                            "Awaiting your command."
+                                    },
+
+                                color =
+                                    when {
+
+                                        isListening ->
+                                            secondaryAccent
+
+                                        isThinking ->
+                                            accent
+
+                                        isSpeaking ->
+                                            secondaryAccent
+
+                                        else ->
+                                            secondaryText
+                                    },
+
+                                fontSize =
+                                    14.sp,
+                            )
+                        }
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    42.dp
+                                )
+                        )
+
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color =
+                                            panel,
+
+                                        shape =
+                                            RoundedCornerShape(
+                                                18.dp
+                                            ),
+                                    )
+                                    .border(
+                                        width =
+                                            1.dp,
+
+                                        color =
+                                            accent.copy(
+                                                alpha =
+                                                    0.35f
+                                            ),
+
+                                        shape =
+                                            RoundedCornerShape(
+                                                18.dp
+                                            ),
+                                    )
+                                    .padding(
+                                        20.dp
+                                    ),
+                        ) {
+
+                            Column {
+
+
+                                Text(
+                                    text =
+                                        "SYSTEM STATUS",
+
+                                    color =
+                                        accent,
+
+                                    fontSize =
+                                        12.sp,
+
+                                    letterSpacing =
+                                        2.sp,
+                                )
+
+
+                                Spacer(
+                                    modifier =
+                                        Modifier.height(
+                                            18.dp
+                                        )
+                                )
+
+
+                                StatusRow(
+                                    label =
+                                        "LOCATION",
+
+                                    value =
+                                        "Taree",
+
+                                    valueColor =
+                                        Color.White,
+                                )
+
+
+                                Spacer(
+                                    modifier =
+                                        Modifier.height(
+                                            12.dp
+                                        )
+                                )
+
+
+                                StatusRow(
+                                    label =
+                                        "STATUS",
+
+                                    value =
+                                        if (
+                                            cypherReply ==
+                                            "I couldn't connect to CypherOS."
+                                        ) {
+
+                                            "OFFLINE"
+
+                                        } else {
+
+                                            "ONLINE"
+                                        },
+
+                                    valueColor =
+                                        if (
+                                            cypherReply ==
+                                            "I couldn't connect to CypherOS."
+                                        ) {
+
+                                            Color.Red
+
+                                        } else {
+
+                                            secondaryAccent
+                                        },
+                                )
+                            }
+                        }
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                )
+                        )
+
+
+                        Text(
+                            text =
+                                "TAP TO SPEAK",
+
+                            color =
+                                secondaryText,
+
+                            fontSize =
+                                11.sp,
+
+                            letterSpacing =
+                                2.sp,
+                        )
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    12.dp
+                                )
+                        )
+
+
+                        Box(
+                            modifier =
+                                Modifier
+                                    .size(
+                                        76.dp
+                                    )
+                                    .clickable {
+
+                                        when {
+
+                                            isListening -> {
+
+                                                speechRecognizer
+                                                    ?.cancel()
+                                            }
+
+
+                                            isSpeaking -> {
+
+                                                stopSpeaking()
+                                            }
+
+
+                                            !isThinking -> {
+
+                                                val permissionGranted =
+                                                    ContextCompat
+                                                        .checkSelfPermission(
+                                                            context,
+
+                                                            Manifest
+                                                                .permission
+                                                                .RECORD_AUDIO,
+                                                        ) ==
+                                                            PackageManager
+                                                                .PERMISSION_GRANTED
+
+
+                                                if (
+                                                    permissionGranted
+                                                ) {
+
+                                                    startListening()
+
+                                                } else {
+
+                                                    microphonePermissionLauncher
+                                                        .launch(
+                                                            Manifest
+                                                                .permission
+                                                                .RECORD_AUDIO
+                                                        )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .background(
+                                        color =
+                                            accent.copy(
+                                                alpha =
+                                                    0.12f
+                                            ),
+
+                                        shape =
+                                            CircleShape,
+                                    )
+                                    .border(
+                                        width =
+                                            if (
+                                                isListening ||
+                                                isSpeaking
+                                            ) {
+
+                                                2.dp
+
+                                            } else {
+
+                                                1.dp
+                                            },
+
+                                        color =
+                                            if (
+                                                isListening ||
+                                                isSpeaking
+                                            ) {
+
+                                                secondaryAccent
+
+                                            } else {
+
+                                                accent
+                                            },
+
+                                        shape =
+                                            CircleShape,
+                                    ),
+
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+
+
+                            Text(
+                                text =
+                                    when {
+
+                                        isListening ->
+                                            "STOP"
+
+                                        isThinking ->
+                                            "..."
+
+                                        isSpeaking ->
+                                            "STOP"
+
+                                        else ->
+                                            "MIC"
+                                    },
+
+                                color =
+                                    secondaryAccent,
+
+                                fontSize =
+                                    13.sp,
+
+                                fontWeight =
+                                    FontWeight.Bold,
+                            )
+                        }
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    12.dp
+                                )
+                        )
+                    }
                 }
 
 
+                /*
+                 * Home screen menu button.
+                 * This overlays the existing Home design so the
+                 * original layout is not shifted or redesigned.
+                 */
                 Box(
                     modifier =
-                        Modifier.size(
-                            160.dp
-                        ),
+                        Modifier
+                            .padding(
+                                start =
+                                    12.dp,
+
+                                top =
+                                    24.dp,
+                            )
+                            .size(
+                                52.dp
+                            )
+                            .clickable {
+                                isMenuOpen =
+                                    true
+                            },
 
                     contentAlignment =
                         Alignment.Center,
                 ) {
 
-
-                    Canvas(
-                        modifier =
-                            Modifier
-                                .fillMaxSize()
-                                .rotate(
-                                    middleRotation
-                                )
-                    ) {
-
-                        val strokeWidth =
-                            3.dp.toPx()
-
-
-                        val arcSize =
-                            Size(
-
-                                width =
-                                    size.width -
-                                            strokeWidth,
-
-                                height =
-                                    size.height -
-                                            strokeWidth,
-                            )
-
-
-                        val topLeft =
-                            Offset(
-
-                                x =
-                                    strokeWidth /
-                                            2,
-
-                                y =
-                                    strokeWidth /
-                                            2,
-                            )
-
-
-                        drawArc(
-                            color =
-                                accent,
-
-                            startAngle =
-                                -90f,
-
-                            sweepAngle =
-                                70f,
-
-                            useCenter =
-                                false,
-
-                            topLeft =
-                                topLeft,
-
-                            size =
-                                arcSize,
-
-                            style =
-                                Stroke(
-                                    width =
-                                        strokeWidth,
-
-                                    cap =
-                                        StrokeCap.Round,
-                                ),
-                        )
-
-
-                        drawArc(
-                            color =
-                                accent,
-
-                            startAngle =
-                                20f,
-
-                            sweepAngle =
-                                85f,
-
-                            useCenter =
-                                false,
-
-                            topLeft =
-                                topLeft,
-
-                            size =
-                                arcSize,
-
-                            style =
-                                Stroke(
-                                    width =
-                                        strokeWidth,
-
-                                    cap =
-                                        StrokeCap.Round,
-                                ),
-                        )
-
-
-                        drawArc(
-                            color =
-                                secondaryAccent,
-
-                            startAngle =
-                                145f,
-
-                            sweepAngle =
-                                45f,
-
-                            useCenter =
-                                false,
-
-                            topLeft =
-                                topLeft,
-
-                            size =
-                                arcSize,
-
-                            style =
-                                Stroke(
-                                    width =
-                                        strokeWidth,
-
-                                    cap =
-                                        StrokeCap.Round,
-                                ),
-                        )
-
-
-                        drawArc(
-                            color =
-                                accent,
-
-                            startAngle =
-                                220f,
-
-                            sweepAngle =
-                                95f,
-
-                            useCenter =
-                                false,
-
-                            topLeft =
-                                topLeft,
-
-                            size =
-                                arcSize,
-
-                            style =
-                                Stroke(
-                                    width =
-                                        strokeWidth,
-
-                                    cap =
-                                        StrokeCap.Round,
-                                ),
-                        )
-                    }
-
-
-                    Image(
-                        painter =
-                            painterResource(
-                                id =
-                                    R.drawable
-                                        .cypher_head
-                            ),
-
-                        contentDescription =
-                            "Cypher",
-
-                        modifier =
-                            Modifier.size(
-                                105.dp
-                            ),
-                    )
-                }
-            }
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        38.dp
-                    )
-            )
-
-
-            Text(
-                text =
-                    greeting,
-
-                color =
-                    Color.White,
-
-                fontSize =
-                    20.sp,
-
-                fontWeight =
-                    FontWeight.Medium,
-            )
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        10.dp
-                    )
-            )
-
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(
-                            min = 40.dp,
-                            max = 140.dp,
-                        )
-                        .verticalScroll(
-                            rememberScrollState()
-                        ),
-            ) {
-
-                Text(
-                    text =
-                        when {
-
-                            isListening ->
-                                "I'm listening..."
-
-                            isThinking ->
-                                "Thinking..."
-
-                            cypherReply
-                                .isNotBlank() ->
-                                cypherReply
-
-                            recognizedText
-                                .isNotBlank() ->
-                                recognizedText
-
-                            else ->
-                                "Awaiting your command."
-                        },
-
-                    color =
-                        when {
-
-                            isListening ->
-                                secondaryAccent
-
-                            isThinking ->
-                                accent
-
-                            isSpeaking ->
-                                secondaryAccent
-
-                            else ->
-                                secondaryText
-                        },
-
-                    fontSize =
-                        14.sp,
-                )
-            }
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        42.dp
-                    )
-            )
-
-
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(
-                            color =
-                                panel,
-
-                            shape =
-                                RoundedCornerShape(
-                                    18.dp
-                                ),
-                        )
-                        .border(
-                            width =
-                                1.dp,
-
-                            color =
-                                accent.copy(
-                                    alpha =
-                                        0.35f
-                                ),
-
-                            shape =
-                                RoundedCornerShape(
-                                    18.dp
-                                ),
-                        )
-                        .padding(
-                            20.dp
-                        ),
-            ) {
-
-                Column {
-
-
                     Text(
                         text =
-                            "SYSTEM STATUS",
+                            "☰",
 
                         color =
                             accent,
 
                         fontSize =
-                            12.sp,
+                            30.sp,
 
-                        letterSpacing =
-                            2.sp,
-                    )
-
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                18.dp
-                            )
-                    )
-
-
-                    StatusRow(
-                        label =
-                            "LOCATION",
-
-                        value =
-                            "Taree",
-
-                        valueColor =
-                            Color.White,
-                    )
-
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                12.dp
-                            )
-                    )
-
-
-                    StatusRow(
-                        label =
-                            "STATUS",
-
-                        value =
-                            if (
-                                cypherReply ==
-                                "I couldn't connect to CypherOS."
-                            ) {
-
-                                "OFFLINE"
-
-                            } else {
-
-                                "ONLINE"
-                            },
-
-                        valueColor =
-                            if (
-                                cypherReply ==
-                                "I couldn't connect to CypherOS."
-                            ) {
-
-                                Color.Red
-
-                            } else {
-
-                                secondaryAccent
-                            },
+                        fontWeight =
+                            FontWeight.Light,
                     )
                 }
             }
 
 
-            Spacer(
-                modifier =
-                    Modifier.weight(
-                        1f
-                    )
-            )
+            CypherScreen.TASKS -> {
 
+                val repository =
+                    taskRepository
 
-            Text(
-                text =
-                    "TAP TO SPEAK",
+                if (
+                    repository != null
+                ) {
 
-                color =
-                    secondaryText,
+                    CypherTaskScreen(
+                        taskRepository =
+                            repository,
 
-                fontSize =
-                    11.sp,
+                        isListening =
+                            isListening,
 
-                letterSpacing =
-                    2.sp,
-            )
+                        isThinking =
+                            isThinking,
 
+                        isSpeaking =
+                            isSpeaking,
 
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
-                    )
-            )
-
-
-            Box(
-                modifier =
-                    Modifier
-                        .size(
-                            76.dp
-                        )
-                        .clickable {
-
-                            when {
-
-                                isListening -> {
-
-                                    speechRecognizer
-                                        ?.cancel()
-                                }
-
-
-                                isSpeaking -> {
-
-                                    stopSpeaking()
-                                }
-
-
-                                !isThinking -> {
-
-                                    val permissionGranted =
-                                        ContextCompat
-                                            .checkSelfPermission(
-                                                context,
-
-                                                Manifest
-                                                    .permission
-                                                    .RECORD_AUDIO,
-                                            ) ==
-                                                PackageManager
-                                                    .PERMISSION_GRANTED
-
-
-                                    if (
-                                        permissionGranted
-                                    ) {
-
-                                        startListening()
-
-                                    } else {
-
-                                        microphonePermissionLauncher
-                                            .launch(
-                                                Manifest
-                                                    .permission
-                                                    .RECORD_AUDIO
-                                            )
-                                    }
-                                }
-                            }
-                        }
-                        .background(
-                            color =
-                                accent.copy(
-                                    alpha =
-                                        0.12f
-                                ),
-
-                            shape =
-                                CircleShape,
-                        )
-                        .border(
-                            width =
-                                if (
-                                    isListening ||
-                                    isSpeaking
-                                ) {
-
-                                    2.dp
-
-                                } else {
-
-                                    1.dp
-                                },
-
-                            color =
-                                if (
-                                    isListening ||
-                                    isSpeaking
-                                ) {
-
-                                    secondaryAccent
-
-                                } else {
-
-                                    accent
-                                },
-
-                            shape =
-                                CircleShape,
-                        ),
-
-                contentAlignment =
-                    Alignment.Center,
-            ) {
-
-
-                Text(
-                    text =
-                        when {
-
-                            isListening ->
-                                "STOP"
-
-                            isThinking ->
-                                "..."
-
-                            isSpeaking ->
-                                "STOP"
-
-                            else ->
-                                "MIC"
+                        onMenuClick = {
+                            isMenuOpen =
+                                true
                         },
 
-                    color =
-                        secondaryAccent,
-
-                    fontSize =
-                        13.sp,
-
-                    fontWeight =
-                        FontWeight.Bold,
-                )
-            }
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        12.dp
+                        onMicClick = {
+                            handleMicClick()
+                        },
                     )
+
+                } else {
+
+                    Surface(
+                        modifier =
+                            Modifier.fillMaxSize(),
+
+                        color =
+                            background,
+                    ) {
+
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+
+                            Text(
+                                text =
+                                    "Tasks are unavailable in preview mode.",
+
+                                color =
+                                    secondaryText,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+
+        if (
+            isMenuOpen
+        ) {
+
+            CypherMenuOverlay(
+                currentScreen =
+                    currentScreen,
+
+                onScreenSelected = { screen ->
+                    currentScreen =
+                        screen
+                },
+
+                onDismiss = {
+                    isMenuOpen =
+                        false
+                },
             )
         }
     }
