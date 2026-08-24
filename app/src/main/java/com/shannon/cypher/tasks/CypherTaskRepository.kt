@@ -2,6 +2,8 @@ package com.shannon.cypher.tasks
 
 import android.content.Context
 import kotlin.math.max
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 
 class CypherTaskRepository(
@@ -60,6 +62,90 @@ class CypherTaskRepository(
         return taskDao.insert(
             task
         )
+    }
+
+
+    suspend fun updateTaskTitle(
+        taskId: Long,
+        newTitle: String,
+    ): Boolean {
+
+        val cleanTitle =
+            cleanText(
+                newTitle
+            )
+
+
+        if (
+            cleanTitle.isBlank()
+        ) {
+
+            return false
+        }
+
+
+        val task =
+            taskDao.getById(
+                taskId
+            )
+                ?: return false
+
+
+        taskDao.update(
+            task.copy(
+                title =
+                    cleanTitle,
+            )
+        )
+
+
+        return true
+    }
+
+
+    fun observeOpenTasks():
+            Flow<List<CypherTaskEntity>> {
+
+        return taskDao
+            .observeAllTasks()
+            .map {
+                    tasks ->
+
+                tasks
+                    .filter {
+                        !it.isCompleted
+                    }
+                    .sortedWith(
+                        compareBy<CypherTaskEntity> {
+                            it.dueAtMillis == null
+                        }.thenBy {
+                            it.dueAtMillis
+                                ?: Long.MAX_VALUE
+                        }.thenBy {
+                            it.createdAtMillis
+                        }
+                    )
+            }
+    }
+
+
+    fun observeCompletedTasks():
+            Flow<List<CypherTaskEntity>> {
+
+        return taskDao
+            .observeAllTasks()
+            .map {
+                    tasks ->
+
+                tasks
+                    .filter {
+                        it.isCompleted
+                    }
+                    .sortedByDescending {
+                        it.completedAtMillis
+                            ?: 0L
+                    }
+            }
     }
 
 

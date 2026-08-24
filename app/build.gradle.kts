@@ -110,6 +110,8 @@ dependencies {
         libs.androidx.lifecycle.runtime.ktx
     )
 
+    implementation("androidx.compose.material:material-icons-extended")
+
 
     /*
      * Cypher local memory database.

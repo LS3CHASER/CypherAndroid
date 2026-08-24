@@ -24,11 +24,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,8 +52,10 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.shannon.cypher.R
@@ -60,88 +74,82 @@ fun CypherTaskScreen(
     onMicClick: () -> Unit,
 ) {
 
-    val background =
-        Color(
-            0xFF070509
-        )
+    val background = Color(0xFF070509)
+    val panel = Color(0xFF110D16)
+    val accent = Color(0xFF8A2BE2)
+    val secondaryAccent = Color(0xFF76FF03)
+    val secondaryText = Color(0xFFA99AAF)
 
-    val panel =
-        Color(
-            0xFF110D16
-        )
-
-    val accent =
-        Color(
-            0xFF8A2BE2
-        )
-
-    val secondaryAccent =
-        Color(
-            0xFF76FF03
-        )
-
-    val secondaryText =
-        Color(
-            0xFFA99AAF
-        )
-
-
-    /*
-     * All compact Cypher rings turn green
-     * while the microphone is actively listening.
-     */
     val compactRingColor =
-        if (
-            isListening
-        ) {
+        if (isListening) {
             secondaryAccent
         } else {
             accent
         }
 
-
     val coroutineScope =
         rememberCoroutineScope()
 
+    val focusManager =
+        LocalFocusManager.current
 
-    var openTasks by
+
+    /*
+     * LIVE ROOM OBSERVATION
+     *
+     * These lists now update automatically whenever the task
+     * database changes, including changes caused by voice commands
+     * from CypherHomeScreen.
+     */
+    val openTasks by
+    taskRepository
+        .observeOpenTasks()
+        .collectAsState(
+            initial =
+                emptyList()
+        )
+
+
+    val completedTasks by
+    taskRepository
+        .observeCompletedTasks()
+        .collectAsState(
+            initial =
+                emptyList()
+        )
+
+
+    var showTaskDialog by
     remember {
-        mutableStateOf<
-                List<CypherTaskEntity>
-                >(
-            emptyList()
+        mutableStateOf(
+            false
         )
     }
 
 
-    var completedTasks by
+    var editingTask by
     remember {
         mutableStateOf<
-                List<CypherTaskEntity>
+                CypherTaskEntity?
                 >(
-            emptyList()
+            null
         )
     }
 
 
-    suspend fun refreshTasks() {
-
-        openTasks =
-            taskRepository
-                .getOpenTasks()
-
-
-        completedTasks =
-            taskRepository
-                .getCompletedTasks()
+    var taskText by
+    remember {
+        mutableStateOf(
+            ""
+        )
     }
 
 
-    LaunchedEffect(
-        Unit
-    ) {
-
-        refreshTasks()
+    var taskInputError by
+    remember {
+        mutableStateOf(
+            false
+        )
     }
 
 
@@ -155,9 +163,6 @@ fun CypherTaskScreen(
                 .completeTask(
                     task.id
                 )
-
-
-            refreshTasks()
         }
     }
 
@@ -172,9 +177,95 @@ fun CypherTaskScreen(
                 .reopenTask(
                     task.id
                 )
+        }
+    }
 
 
-            refreshTasks()
+    fun openAddDialog() {
+
+        editingTask = null
+        taskText = ""
+        taskInputError = false
+        showTaskDialog = true
+    }
+
+
+    fun openEditDialog(
+        task: CypherTaskEntity,
+    ) {
+
+        editingTask = task
+        taskText = task.title
+        taskInputError = false
+        showTaskDialog = true
+    }
+
+
+    fun closeTaskDialog() {
+
+        showTaskDialog = false
+        editingTask = null
+        taskText = ""
+        taskInputError = false
+
+        focusManager
+            .clearFocus()
+    }
+
+
+    fun saveTask() {
+
+        val cleanText =
+            taskText
+                .trim()
+                .replace(
+                    Regex("\\s+"),
+                    " "
+                )
+
+
+        if (
+            cleanText.isBlank()
+        ) {
+
+            taskInputError = true
+            return
+        }
+
+
+        coroutineScope.launch {
+
+            val existing =
+                editingTask
+
+
+            if (
+                existing == null
+            ) {
+
+                taskRepository
+                    .addTask(
+                        cleanText
+                    )
+
+            } else {
+
+                taskRepository
+                    .updateTaskTitle(
+                        taskId =
+                            existing.id,
+
+                        newTitle =
+                            cleanText,
+                    )
+            }
+
+
+            /*
+             * No manual refresh is required here anymore.
+             * Room emits the database change and Compose updates.
+             */
+            closeTaskDialog()
         }
     }
 
@@ -233,8 +324,7 @@ fun CypherTaskScreen(
 
     Surface(
         modifier =
-            Modifier
-                .fillMaxSize(),
+            Modifier.fillMaxSize(),
 
         color =
             background,
@@ -244,13 +334,7 @@ fun CypherTaskScreen(
             modifier =
                 Modifier
                     .fillMaxSize()
-
-                    /*
-                     * Keep the Tasks UI below Samsung / Android
-                     * status and notification icons.
-                     */
                     .statusBarsPadding()
-
                     .padding(
                         horizontal =
                             20.dp,
@@ -263,22 +347,16 @@ fun CypherTaskScreen(
 
             Row(
                 modifier =
-                    Modifier
-                        .fillMaxWidth(),
+                    Modifier.fillMaxWidth(),
 
                 horizontalArrangement =
-                    Arrangement
-                        .SpaceBetween,
+                    Arrangement.SpaceBetween,
 
                 verticalAlignment =
-                    Alignment
-                        .CenterVertically,
+                    Alignment.CenterVertically,
             ) {
 
 
-                /*
-                 * Hamburger menu.
-                 */
                 Box(
                     modifier =
                         Modifier
@@ -309,12 +387,6 @@ fun CypherTaskScreen(
                 }
 
 
-                /*
-                 * Compact Cypher voice control.
-                 *
-                 * It now sits safely below the system status bar.
-                 * All rings turn green while listening.
-                 */
                 Box(
                     modifier =
                         Modifier
@@ -439,10 +511,9 @@ fun CypherTaskScreen(
                             },
 
                         modifier =
-                            Modifier
-                                .size(
-                                    42.dp
-                                ),
+                            Modifier.size(
+                                42.dp
+                            ),
                     )
                 }
             }
@@ -456,22 +527,123 @@ fun CypherTaskScreen(
             )
 
 
-            Text(
-                text =
-                    "TO-DO LIST",
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
 
-                color =
-                    Color.White,
+                horizontalArrangement =
+                    Arrangement.SpaceBetween,
 
-                fontSize =
-                    26.sp,
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
 
-                fontWeight =
-                    FontWeight.Medium,
+                Text(
+                    text =
+                        "TO-DO LIST",
 
-                letterSpacing =
-                    3.sp,
-            )
+                    color =
+                        Color.White,
+
+                    fontSize =
+                        26.sp,
+
+                    fontWeight =
+                        FontWeight.Medium,
+
+                    letterSpacing =
+                        3.sp,
+                )
+
+
+                Row(
+                    modifier =
+                        Modifier
+                            .clickable {
+                                openAddDialog()
+                            }
+                            .background(
+                                color =
+                                    accent.copy(
+                                        alpha =
+                                            0.16f
+                                    ),
+
+                                shape =
+                                    RoundedCornerShape(
+                                        12.dp
+                                    ),
+                            )
+                            .border(
+                                width =
+                                    1.dp,
+
+                                color =
+                                    accent.copy(
+                                        alpha =
+                                            0.35f
+                                    ),
+
+                                shape =
+                                    RoundedCornerShape(
+                                        12.dp
+                                    ),
+                            )
+                            .padding(
+                                horizontal =
+                                    12.dp,
+
+                                vertical =
+                                    8.dp,
+                            ),
+
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Add,
+
+                        contentDescription =
+                            "Add task",
+
+                        tint =
+                            secondaryAccent,
+
+                        modifier =
+                            Modifier.size(
+                                18.dp
+                            ),
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(
+                                6.dp
+                            )
+                    )
+
+
+                    Text(
+                        text =
+                            "ADD TASK",
+
+                        color =
+                            secondaryAccent,
+
+                        fontSize =
+                            12.sp,
+
+                        fontWeight =
+                            FontWeight.Medium,
+
+                        letterSpacing =
+                            1.sp,
+                    )
+                }
+            }
 
 
             Spacer(
@@ -484,7 +656,7 @@ fun CypherTaskScreen(
 
             Text(
                 text =
-                    "Tap an open task to complete it. Tap a completed task to restore it.",
+                    "Tap a task to complete it. Tap completed tasks to restore them.",
 
                 color =
                     secondaryText,
@@ -619,18 +791,12 @@ fun CypherTaskScreen(
                                                 14.dp
                                             ),
                                     )
-                                    .clickable {
-
-                                        completeTask(
-                                            task
-                                        )
-                                    }
                                     .padding(
                                         horizontal =
-                                            16.dp,
+                                            10.dp,
 
                                         vertical =
-                                            16.dp,
+                                            8.dp,
                                     ),
 
                             verticalAlignment =
@@ -638,42 +804,88 @@ fun CypherTaskScreen(
                         ) {
 
 
-                            Text(
-                                text =
-                                    "☐",
-
-                                color =
-                                    secondaryAccent,
-
-                                fontSize =
-                                    24.sp,
-                            )
-
-
-                            Spacer(
-                                modifier =
-                                    Modifier.size(
-                                        12.dp
-                                    )
-                            )
-
-
-                            Text(
-                                text =
-                                    task.title,
-
-                                color =
-                                    Color.White,
-
-                                fontSize =
-                                    16.sp,
-
+                            Row(
                                 modifier =
                                     Modifier
                                         .weight(
                                             1f
+                                        )
+                                        .clickable {
+
+                                            completeTask(
+                                                task
+                                            )
+                                        }
+                                        .padding(
+                                            horizontal =
+                                                6.dp,
+
+                                            vertical =
+                                                8.dp,
                                         ),
-                            )
+
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
+                            ) {
+
+                                Text(
+                                    text =
+                                        "☐",
+
+                                    color =
+                                        secondaryAccent,
+
+                                    fontSize =
+                                        24.sp,
+                                )
+
+
+                                Spacer(
+                                    modifier =
+                                        Modifier.size(
+                                            12.dp
+                                        )
+                                )
+
+
+                                Text(
+                                    text =
+                                        task.title,
+
+                                    color =
+                                        Color.White,
+
+                                    fontSize =
+                                        16.sp,
+
+                                    modifier =
+                                        Modifier.weight(
+                                            1f
+                                        ),
+                                )
+                            }
+
+
+                            IconButton(
+                                onClick = {
+
+                                    openEditDialog(
+                                        task
+                                    )
+                                },
+                            ) {
+
+                                Icon(
+                                    imageVector =
+                                        Icons.Default.Edit,
+
+                                    contentDescription =
+                                        "Edit ${task.title}",
+
+                                    tint =
+                                        accent,
+                                )
+                            }
                         }
 
 
@@ -777,8 +989,7 @@ fun CypherTaskScreen(
                                         ),
 
                                 verticalAlignment =
-                                    Alignment
-                                        .CenterVertically,
+                                    Alignment.CenterVertically,
                             ) {
 
 
@@ -813,10 +1024,9 @@ fun CypherTaskScreen(
                                         15.sp,
 
                                     modifier =
-                                        Modifier
-                                            .weight(
-                                                1f
-                                            ),
+                                        Modifier.weight(
+                                            1f
+                                        ),
                                 )
                             }
 
@@ -839,5 +1049,181 @@ fun CypherTaskScreen(
                 )
             }
         }
+    }
+
+
+    if (
+        showTaskDialog
+    ) {
+
+        AlertDialog(
+            onDismissRequest = {
+                closeTaskDialog()
+            },
+
+            containerColor =
+                panel,
+
+            title = {
+
+                Text(
+                    text =
+                        if (
+                            editingTask == null
+                        ) {
+                            "ADD TASK"
+                        } else {
+                            "EDIT TASK"
+                        },
+
+                    color =
+                        Color.White,
+
+                    letterSpacing =
+                        2.sp,
+                )
+            },
+
+            text = {
+
+                OutlinedTextField(
+                    value =
+                        taskText,
+
+                    onValueChange = {
+                            newValue ->
+
+                        taskText =
+                            newValue
+
+                        if (
+                            newValue.isNotBlank()
+                        ) {
+                            taskInputError = false
+                        }
+                    },
+
+                    modifier =
+                        Modifier.fillMaxWidth(),
+
+                    label = {
+
+                        Text(
+                            text =
+                                "Task"
+                        )
+                    },
+
+                    singleLine =
+                        true,
+
+                    isError =
+                        taskInputError,
+
+                    supportingText =
+                        if (
+                            taskInputError
+                        ) {
+                            {
+                                Text(
+                                    text =
+                                        "Please enter a task."
+                                )
+                            }
+                        } else {
+                            null
+                        },
+
+                    keyboardOptions =
+                        KeyboardOptions(
+                            imeAction =
+                                ImeAction.Done
+                        ),
+
+                    keyboardActions =
+                        KeyboardActions(
+                            onDone = {
+                                saveTask()
+                            }
+                        ),
+                )
+            },
+
+            confirmButton = {
+
+                TextButton(
+                    onClick = {
+                        saveTask()
+                    },
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Save,
+
+                        contentDescription =
+                            null,
+
+                        tint =
+                            secondaryAccent,
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(
+                                6.dp
+                            )
+                    )
+
+
+                    Text(
+                        text =
+                            "SAVE",
+
+                        color =
+                            secondaryAccent,
+                    )
+                }
+            },
+
+            dismissButton = {
+
+                TextButton(
+                    onClick = {
+                        closeTaskDialog()
+                    },
+                ) {
+
+                    Icon(
+                        imageVector =
+                            Icons.Default.Close,
+
+                        contentDescription =
+                            null,
+
+                        tint =
+                            secondaryText,
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.size(
+                                6.dp
+                            )
+                    )
+
+
+                    Text(
+                        text =
+                            "CANCEL",
+
+                        color =
+                            secondaryText,
+                    )
+                }
+            },
+        )
     }
 }

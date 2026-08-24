@@ -1889,8 +1889,60 @@ fun CypherHomeScreen() {
     }
 
 
+    fun normaliseTaskCommand(
+        message: String,
+    ): String {
+
+        var text =
+            message
+                .lowercase()
+                .trim()
+                .trimEnd(
+                    '.',
+                    '!',
+                    '?',
+                )
+
+
+        /*
+         * Remove common polite / conversational lead-ins so
+         * natural voice commands still route to Tasks.
+         *
+         * Examples:
+         * "Please mark buy NGK spark plugs as complete"
+         * "Can you mark buy NGK spark plugs as complete"
+         * "Cypher, please delete buy coolant from my to do list"
+         */
+        text =
+            text.replace(
+                Regex(
+                    "^(?:cypher[,\\s]+)?(?:" +
+                            "please\\s+|" +
+                            "can\\s+you\\s+|" +
+                            "could\\s+you\\s+|" +
+                            "would\\s+you\\s+|" +
+                            "will\\s+you\\s+|" +
+                            "can\\s+you\\s+please\\s+|" +
+                            "could\\s+you\\s+please\\s+|" +
+                            "would\\s+you\\s+please\\s+" +
+                            ")+",
+                    RegexOption.IGNORE_CASE,
+                ),
+                ""
+            )
+
+
+        return text
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
+    }
+
+
     fun isTaskAddRequest(message: String): Boolean {
-        val lower = message.lowercase().trim()
+        val lower = normaliseTaskCommand(message)
         val hasTarget = listOf("to-do list", "to do list", "todo list", "task list", "my tasks").any { it in lower }
         val hasIntent = listOf("add ", "create ", "put ").any { lower.startsWith(it) }
         return hasTarget && hasIntent
@@ -1928,7 +1980,7 @@ fun CypherHomeScreen() {
 
 
     fun isTaskListRequest(message: String): Boolean {
-        val lower = message.lowercase().trim()
+        val lower = normaliseTaskCommand(message)
         return listOf(
             "what's on my to-do list",
             "whats on my to-do list",
@@ -1956,7 +2008,7 @@ fun CypherHomeScreen() {
 
 
     fun isTaskCompleteRequest(message: String): Boolean {
-        val lower = message.lowercase().trim()
+        val lower = normaliseTaskCommand(message)
         return (
                 lower.startsWith("mark ") &&
                         (
@@ -1971,7 +2023,7 @@ fun CypherHomeScreen() {
 
 
     fun isTaskDeleteRequest(message: String): Boolean {
-        val lower = message.lowercase().trim()
+        val lower = normaliseTaskCommand(message)
         val deleteIntent = lower.startsWith("remove ") || lower.startsWith("delete ")
         val taskTarget = listOf(
             "from my to-do list",
@@ -1985,7 +2037,7 @@ fun CypherHomeScreen() {
 
 
     fun extractTaskAddTitle(message: String): String {
-        var title = message.trim().trimEnd('.', '!', '?')
+        var title = normaliseTaskCommand(message)
         title = title.replace(Regex("(?i)^(add|create|put)\\s+"), "")
         title = title.replace(
             Regex("(?i)\\s+(?:to|on|in)\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
@@ -2000,7 +2052,7 @@ fun CypherHomeScreen() {
 
 
     fun extractTaskCompleteTitle(message: String): String {
-        var title = message.trim().trimEnd('.', '!', '?')
+        var title = normaliseTaskCommand(message)
         title = title.replace(Regex("(?i)^mark\\s+"), "")
         title = title.replace(
             Regex("(?i)\\s+as\\s+(?:done|complete|completed)$"),
@@ -2013,7 +2065,7 @@ fun CypherHomeScreen() {
 
 
     fun extractTaskDeleteTitle(message: String): String {
-        var title = message.trim().trimEnd('.', '!', '?')
+        var title = normaliseTaskCommand(message)
         title = title.replace(Regex("(?i)^(remove|delete)\\s+"), "")
         title = title.replace(
             Regex("(?i)\\s+from\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
