@@ -103,6 +103,30 @@ class CypherTaskRepository(
     }
 
 
+    suspend fun updateTaskDueDate(
+        taskId: Long,
+        dueAtMillis: Long?,
+    ): Boolean {
+
+        val task =
+            taskDao.getById(
+                taskId
+            )
+                ?: return false
+
+
+        taskDao.update(
+            task.copy(
+                dueAtMillis =
+                    dueAtMillis,
+            )
+        )
+
+
+        return true
+    }
+
+
     fun observeOpenTasks():
             Flow<List<CypherTaskEntity>> {
 

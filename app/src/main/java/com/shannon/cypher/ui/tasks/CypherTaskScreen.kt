@@ -1,5 +1,7 @@
 package com.shannon.cypher.ui.tasks
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -52,6 +54,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +64,9 @@ import androidx.compose.ui.unit.sp
 import com.shannon.cypher.R
 import com.shannon.cypher.tasks.CypherTaskEntity
 import com.shannon.cypher.tasks.CypherTaskRepository
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 
@@ -74,32 +80,60 @@ fun CypherTaskScreen(
     onMicClick: () -> Unit,
 ) {
 
-    val background = Color(0xFF070509)
-    val panel = Color(0xFF110D16)
-    val accent = Color(0xFF8A2BE2)
-    val secondaryAccent = Color(0xFF76FF03)
-    val secondaryText = Color(0xFFA99AAF)
+    val context =
+        LocalContext.current
+
+    val background =
+        Color(
+            0xFF070509
+        )
+
+    val panel =
+        Color(
+            0xFF110D16
+        )
+
+    val accent =
+        Color(
+            0xFF8A2BE2
+        )
+
+    val secondaryAccent =
+        Color(
+            0xFF76FF03
+        )
+
+    val secondaryText =
+        Color(
+            0xFFA99AAF
+        )
+
+    val overdueColor =
+        Color(
+            0xFFFF6B6B
+        )
+
 
     val compactRingColor =
-        if (isListening) {
+        if (
+            isListening
+        ) {
             secondaryAccent
         } else {
             accent
         }
 
+
     val coroutineScope =
         rememberCoroutineScope()
+
 
     val focusManager =
         LocalFocusManager.current
 
 
     /*
-     * LIVE ROOM OBSERVATION
-     *
-     * These lists now update automatically whenever the task
-     * database changes, including changes caused by voice commands
-     * from CypherHomeScreen.
+     * Live Room observation.
      */
     val openTasks by
     taskRepository
@@ -153,6 +187,248 @@ fun CypherTaskScreen(
     }
 
 
+    /*
+     * Null = no due date.
+     * Otherwise stores the selected local date/time.
+     */
+    var selectedDueAtMillis by
+    remember {
+        mutableStateOf<
+                Long?
+                >(
+            null
+        )
+    }
+
+
+    fun formatDueDate(
+        millis: Long,
+    ): String {
+
+        val due =
+            Calendar
+                .getInstance()
+                .apply {
+                    timeInMillis =
+                        millis
+                }
+
+
+        val now =
+            Calendar
+                .getInstance()
+
+
+        val todayStart =
+            (now.clone() as Calendar)
+                .apply {
+                    set(
+                        Calendar.HOUR_OF_DAY,
+                        0
+                    )
+                    set(
+                        Calendar.MINUTE,
+                        0
+                    )
+                    set(
+                        Calendar.SECOND,
+                        0
+                    )
+                    set(
+                        Calendar.MILLISECOND,
+                        0
+                    )
+                }
+
+
+        val dueStart =
+            (due.clone() as Calendar)
+                .apply {
+                    set(
+                        Calendar.HOUR_OF_DAY,
+                        0
+                    )
+                    set(
+                        Calendar.MINUTE,
+                        0
+                    )
+                    set(
+                        Calendar.SECOND,
+                        0
+                    )
+                    set(
+                        Calendar.MILLISECOND,
+                        0
+                    )
+                }
+
+
+        val dayDifference =
+            (
+                    dueStart.timeInMillis -
+                            todayStart.timeInMillis
+                    ) /
+                    (
+                            24L *
+                                    60L *
+                                    60L *
+                                    1000L
+                            )
+
+
+        val dayText =
+            when (
+                dayDifference
+            ) {
+
+                0L ->
+                    "Today"
+
+                1L ->
+                    "Tomorrow"
+
+                -1L ->
+                    "Yesterday"
+
+                else ->
+                    SimpleDateFormat(
+                        "EEE d MMM",
+                        Locale.getDefault(),
+                    ).format(
+                        millis
+                    )
+            }
+
+
+        val timeText =
+            SimpleDateFormat(
+                "h:mm a",
+                Locale.getDefault(),
+            ).format(
+                millis
+            )
+
+
+        return "$dayText • $timeText"
+    }
+
+
+    fun openDueDateTimePicker() {
+
+        val base =
+            Calendar
+                .getInstance()
+                .apply {
+
+                    selectedDueAtMillis
+                        ?.let {
+                            timeInMillis =
+                                it
+                        }
+                }
+
+
+        DatePickerDialog(
+            context,
+            {
+                    _,
+                    year,
+                    month,
+                    dayOfMonth ->
+
+                val selectedDate =
+                    Calendar
+                        .getInstance()
+                        .apply {
+                            set(
+                                Calendar.YEAR,
+                                year
+                            )
+                            set(
+                                Calendar.MONTH,
+                                month
+                            )
+                            set(
+                                Calendar.DAY_OF_MONTH,
+                                dayOfMonth
+                            )
+                        }
+
+
+                val initialHour =
+                    if (
+                        selectedDueAtMillis != null
+                    ) {
+                        base.get(
+                            Calendar.HOUR_OF_DAY
+                        )
+                    } else {
+                        9
+                    }
+
+
+                val initialMinute =
+                    if (
+                        selectedDueAtMillis != null
+                    ) {
+                        base.get(
+                            Calendar.MINUTE
+                        )
+                    } else {
+                        0
+                    }
+
+
+                TimePickerDialog(
+                    context,
+                    {
+                            _,
+                            hourOfDay,
+                            minute ->
+
+                        selectedDate
+                            .apply {
+                                set(
+                                    Calendar.HOUR_OF_DAY,
+                                    hourOfDay
+                                )
+                                set(
+                                    Calendar.MINUTE,
+                                    minute
+                                )
+                                set(
+                                    Calendar.SECOND,
+                                    0
+                                )
+                                set(
+                                    Calendar.MILLISECOND,
+                                    0
+                                )
+                            }
+
+
+                        selectedDueAtMillis =
+                            selectedDate
+                                .timeInMillis
+                    },
+                    initialHour,
+                    initialMinute,
+                    false,
+                ).show()
+            },
+            base.get(
+                Calendar.YEAR
+            ),
+            base.get(
+                Calendar.MONTH
+            ),
+            base.get(
+                Calendar.DAY_OF_MONTH
+            ),
+        ).show()
+    }
+
+
     fun completeTask(
         task: CypherTaskEntity,
     ) {
@@ -183,10 +459,20 @@ fun CypherTaskScreen(
 
     fun openAddDialog() {
 
-        editingTask = null
-        taskText = ""
-        taskInputError = false
-        showTaskDialog = true
+        editingTask =
+            null
+
+        taskText =
+            ""
+
+        selectedDueAtMillis =
+            null
+
+        taskInputError =
+            false
+
+        showTaskDialog =
+            true
     }
 
 
@@ -194,19 +480,40 @@ fun CypherTaskScreen(
         task: CypherTaskEntity,
     ) {
 
-        editingTask = task
-        taskText = task.title
-        taskInputError = false
-        showTaskDialog = true
+        editingTask =
+            task
+
+        taskText =
+            task.title
+
+        selectedDueAtMillis =
+            task.dueAtMillis
+
+        taskInputError =
+            false
+
+        showTaskDialog =
+            true
     }
 
 
     fun closeTaskDialog() {
 
-        showTaskDialog = false
-        editingTask = null
-        taskText = ""
-        taskInputError = false
+        showTaskDialog =
+            false
+
+        editingTask =
+            null
+
+        taskText =
+            ""
+
+        selectedDueAtMillis =
+            null
+
+        taskInputError =
+            false
+
 
         focusManager
             .clearFocus()
@@ -228,7 +535,9 @@ fun CypherTaskScreen(
             cleanText.isBlank()
         ) {
 
-            taskInputError = true
+            taskInputError =
+                true
+
             return
         }
 
@@ -245,7 +554,11 @@ fun CypherTaskScreen(
 
                 taskRepository
                     .addTask(
-                        cleanText
+                        title =
+                            cleanText,
+
+                        dueAtMillis =
+                            selectedDueAtMillis,
                     )
 
             } else {
@@ -258,13 +571,19 @@ fun CypherTaskScreen(
                         newTitle =
                             cleanText,
                     )
+
+
+                taskRepository
+                    .updateTaskDueDate(
+                        taskId =
+                            existing.id,
+
+                        dueAtMillis =
+                            selectedDueAtMillis,
+                    )
             }
 
 
-            /*
-             * No manual refresh is required here anymore.
-             * Room emits the database change and Compose updates.
-             */
             closeTaskDialog()
         }
     }
@@ -324,7 +643,8 @@ fun CypherTaskScreen(
 
     Surface(
         modifier =
-            Modifier.fillMaxSize(),
+            Modifier
+                .fillMaxSize(),
 
         color =
             background,
@@ -347,13 +667,16 @@ fun CypherTaskScreen(
 
             Row(
                 modifier =
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .fillMaxWidth(),
 
                 horizontalArrangement =
-                    Arrangement.SpaceBetween,
+                    Arrangement
+                        .SpaceBetween,
 
                 verticalAlignment =
-                    Alignment.CenterVertically,
+                    Alignment
+                        .CenterVertically,
             ) {
 
 
@@ -511,9 +834,10 @@ fun CypherTaskScreen(
                             },
 
                         modifier =
-                            Modifier.size(
-                                42.dp
-                            ),
+                            Modifier
+                                .size(
+                                    42.dp
+                                ),
                     )
                 }
             }
@@ -529,13 +853,16 @@ fun CypherTaskScreen(
 
             Row(
                 modifier =
-                    Modifier.fillMaxWidth(),
+                    Modifier
+                        .fillMaxWidth(),
 
                 horizontalArrangement =
-                    Arrangement.SpaceBetween,
+                    Arrangement
+                        .SpaceBetween,
 
                 verticalAlignment =
-                    Alignment.CenterVertically,
+                    Alignment
+                        .CenterVertically,
             ) {
 
                 Text(
@@ -598,7 +925,8 @@ fun CypherTaskScreen(
                             ),
 
                     verticalAlignment =
-                        Alignment.CenterVertically,
+                        Alignment
+                            .CenterVertically,
                 ) {
 
                     Icon(
@@ -612,9 +940,10 @@ fun CypherTaskScreen(
                             secondaryAccent,
 
                         modifier =
-                            Modifier.size(
-                                18.dp
-                            ),
+                            Modifier
+                                .size(
+                                    18.dp
+                                ),
                     )
 
 
@@ -763,6 +1092,16 @@ fun CypherTaskScreen(
                             task ->
 
 
+                        val dueAt =
+                            task.dueAtMillis
+
+
+                        val isOverdue =
+                            dueAt != null &&
+                                    dueAt <
+                                    System.currentTimeMillis()
+
+
                         Row(
                             modifier =
                                 Modifier
@@ -781,10 +1120,19 @@ fun CypherTaskScreen(
                                             1.dp,
 
                                         color =
-                                            accent.copy(
-                                                alpha =
-                                                    0.25f
-                                            ),
+                                            if (
+                                                isOverdue
+                                            ) {
+                                                overdueColor.copy(
+                                                    alpha =
+                                                        0.55f
+                                                )
+                                            } else {
+                                                accent.copy(
+                                                    alpha =
+                                                        0.25f
+                                                )
+                                            },
 
                                         shape =
                                             RoundedCornerShape(
@@ -800,7 +1148,8 @@ fun CypherTaskScreen(
                                     ),
 
                             verticalAlignment =
-                                Alignment.CenterVertically,
+                                Alignment
+                                    .CenterVertically,
                         ) {
 
 
@@ -825,7 +1174,8 @@ fun CypherTaskScreen(
                                         ),
 
                                 verticalAlignment =
-                                    Alignment.CenterVertically,
+                                    Alignment
+                                        .CenterVertically,
                             ) {
 
                                 Text(
@@ -848,21 +1198,73 @@ fun CypherTaskScreen(
                                 )
 
 
-                                Text(
-                                    text =
-                                        task.title,
-
-                                    color =
-                                        Color.White,
-
-                                    fontSize =
-                                        16.sp,
-
+                                Column(
                                     modifier =
-                                        Modifier.weight(
-                                            1f
-                                        ),
-                                )
+                                        Modifier
+                                            .weight(
+                                                1f
+                                            ),
+                                ) {
+
+                                    Text(
+                                        text =
+                                            task.title,
+
+                                        color =
+                                            Color.White,
+
+                                        fontSize =
+                                            16.sp,
+                                    )
+
+
+                                    if (
+                                        dueAt != null
+                                    ) {
+
+                                        Spacer(
+                                            modifier =
+                                                Modifier.height(
+                                                    3.dp
+                                                )
+                                        )
+
+
+                                        Text(
+                                            text =
+                                                if (
+                                                    isOverdue
+                                                ) {
+                                                    "OVERDUE • ${formatDueDate(dueAt)}"
+                                                } else {
+                                                    formatDueDate(
+                                                        dueAt
+                                                    )
+                                                },
+
+                                            color =
+                                                if (
+                                                    isOverdue
+                                                ) {
+                                                    overdueColor
+                                                } else {
+                                                    secondaryText
+                                                },
+
+                                            fontSize =
+                                                12.sp,
+
+                                            fontWeight =
+                                                if (
+                                                    isOverdue
+                                                ) {
+                                                    FontWeight.Medium
+                                                } else {
+                                                    FontWeight.Normal
+                                                },
+                                        )
+                                    }
+                                }
                             }
 
 
@@ -989,7 +1391,8 @@ fun CypherTaskScreen(
                                         ),
 
                                 verticalAlignment =
-                                    Alignment.CenterVertically,
+                                    Alignment
+                                        .CenterVertically,
                             ) {
 
 
@@ -1013,21 +1416,53 @@ fun CypherTaskScreen(
                                 )
 
 
-                                Text(
-                                    text =
-                                        task.title,
-
-                                    color =
-                                        secondaryText,
-
-                                    fontSize =
-                                        15.sp,
-
+                                Column(
                                     modifier =
-                                        Modifier.weight(
-                                            1f
-                                        ),
-                                )
+                                        Modifier
+                                            .weight(
+                                                1f
+                                            ),
+                                ) {
+
+                                    Text(
+                                        text =
+                                            task.title,
+
+                                        color =
+                                            secondaryText,
+
+                                        fontSize =
+                                            15.sp,
+                                    )
+
+
+                                    task.dueAtMillis
+                                        ?.let {
+                                                due ->
+
+                                            Spacer(
+                                                modifier =
+                                                    Modifier.height(
+                                                        3.dp
+                                                    )
+                                            )
+
+
+                                            Text(
+                                                text =
+                                                    "Due ${formatDueDate(due)}",
+
+                                                color =
+                                                    secondaryText.copy(
+                                                        alpha =
+                                                            0.7f
+                                                    ),
+
+                                                fontSize =
+                                                    11.sp,
+                                            )
+                                        }
+                                }
                             }
 
 
@@ -1086,67 +1521,173 @@ fun CypherTaskScreen(
 
             text = {
 
-                OutlinedTextField(
-                    value =
-                        taskText,
-
-                    onValueChange = {
-                            newValue ->
-
-                        taskText =
-                            newValue
-
-                        if (
-                            newValue.isNotBlank()
-                        ) {
-                            taskInputError = false
-                        }
-                    },
-
+                Column(
                     modifier =
-                        Modifier.fillMaxWidth(),
+                        Modifier
+                            .fillMaxWidth(),
+                ) {
 
-                    label = {
 
-                        Text(
-                            text =
-                                "Task"
-                        )
-                    },
+                    OutlinedTextField(
+                        value =
+                            taskText,
 
-                    singleLine =
-                        true,
+                        onValueChange = {
+                                newValue ->
 
-                    isError =
-                        taskInputError,
+                            taskText =
+                                newValue
 
-                    supportingText =
-                        if (
-                            taskInputError
-                        ) {
-                            {
-                                Text(
-                                    text =
-                                        "Please enter a task."
-                                )
+
+                            if (
+                                newValue.isNotBlank()
+                            ) {
+
+                                taskInputError =
+                                    false
                             }
-                        } else {
-                            null
                         },
 
-                    keyboardOptions =
-                        KeyboardOptions(
-                            imeAction =
-                                ImeAction.Done
-                        ),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(),
 
-                    keyboardActions =
-                        KeyboardActions(
-                            onDone = {
-                                saveTask()
+                        label = {
+
+                            Text(
+                                text =
+                                    "Task"
+                            )
+                        },
+
+                        singleLine =
+                            true,
+
+                        isError =
+                            taskInputError,
+
+                        supportingText =
+                            if (
+                                taskInputError
+                            ) {
+                                {
+                                    Text(
+                                        text =
+                                            "Please enter a task."
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+
+                        keyboardOptions =
+                            KeyboardOptions(
+                                imeAction =
+                                    ImeAction.Done
+                            ),
+
+                        keyboardActions =
+                            KeyboardActions(
+                                onDone = {
+                                    saveTask()
+                                }
+                            ),
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                14.dp
+                            )
+                    )
+
+
+                    Text(
+                        text =
+                            "DUE DATE / TIME",
+
+                        color =
+                            secondaryText,
+
+                        fontSize =
+                            11.sp,
+
+                        letterSpacing =
+                            1.5.sp,
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                8.dp
+                            )
+                    )
+
+
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth(),
+
+                        horizontalArrangement =
+                            Arrangement
+                                .SpaceBetween,
+
+                        verticalAlignment =
+                            Alignment
+                                .CenterVertically,
+                    ) {
+
+
+                        TextButton(
+                            onClick = {
+                                openDueDateTimePicker()
+                            },
+                        ) {
+
+                            Text(
+                                text =
+                                    if (
+                                        selectedDueAtMillis == null
+                                    ) {
+                                        "SET DATE & TIME"
+                                    } else {
+                                        formatDueDate(
+                                            selectedDueAtMillis!!
+                                        )
+                                    },
+
+                                color =
+                                    secondaryAccent,
+                            )
+                        }
+
+
+                        if (
+                            selectedDueAtMillis != null
+                        ) {
+
+                            TextButton(
+                                onClick = {
+
+                                    selectedDueAtMillis =
+                                        null
+                                },
+                            ) {
+
+                                Text(
+                                    text =
+                                        "CLEAR",
+
+                                    color =
+                                        overdueColor,
+                                )
                             }
-                        ),
-                )
+                        }
+                    }
+                }
             },
 
             confirmButton = {
