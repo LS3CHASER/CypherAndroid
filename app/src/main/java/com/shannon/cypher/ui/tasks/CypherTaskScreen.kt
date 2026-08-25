@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
@@ -196,6 +197,14 @@ fun CypherTaskScreen(
         mutableStateOf<
                 Long?
                 >(
+            null
+        )
+    }
+
+
+    var taskPendingDelete by
+    remember {
+        mutableStateOf<CypherTaskEntity?>(
             null
         )
     }
@@ -453,6 +462,16 @@ fun CypherTaskScreen(
                 .reopenTask(
                     task.id
                 )
+        }
+    }
+
+
+    fun deleteCompletedTask(
+        task: CypherTaskEntity,
+    ) {
+
+        coroutineScope.launch {
+            taskRepository.deleteTask(task.id)
         }
     }
 
@@ -1376,18 +1395,12 @@ fun CypherTaskScreen(
                                                     14.dp
                                                 ),
                                         )
-                                        .clickable {
-
-                                            reopenTask(
-                                                task
-                                            )
-                                        }
                                         .padding(
                                             horizontal =
-                                                16.dp,
+                                                10.dp,
 
                                             vertical =
-                                                14.dp,
+                                                8.dp,
                                         ),
 
                                 verticalAlignment =
@@ -1396,72 +1409,103 @@ fun CypherTaskScreen(
                             ) {
 
 
-                                Text(
-                                    text =
-                                        "☑",
-
-                                    color =
-                                        secondaryText,
-
-                                    fontSize =
-                                        22.sp,
-                                )
-
-
-                                Spacer(
-                                    modifier =
-                                        Modifier.size(
-                                            12.dp
-                                        )
-                                )
-
-
-                                Column(
+                                Row(
                                     modifier =
                                         Modifier
-                                            .weight(
-                                                1f
+                                            .weight(1f)
+                                            .clickable {
+                                                reopenTask(task)
+                                            }
+                                            .padding(
+                                                horizontal = 6.dp,
+                                                vertical = 6.dp,
                                             ),
+
+                                    verticalAlignment =
+                                        Alignment.CenterVertically,
                                 ) {
+
 
                                     Text(
                                         text =
-                                            task.title,
+                                            "☑",
 
                                         color =
                                             secondaryText,
 
                                         fontSize =
-                                            15.sp,
+                                            22.sp,
                                     )
 
 
-                                    task.dueAtMillis
-                                        ?.let {
-                                                due ->
-
-                                            Spacer(
-                                                modifier =
-                                                    Modifier.height(
-                                                        3.dp
-                                                    )
+                                    Spacer(
+                                        modifier =
+                                            Modifier.size(
+                                                12.dp
                                             )
+                                    )
 
 
-                                            Text(
-                                                text =
-                                                    "Due ${formatDueDate(due)}",
+                                    Column(
+                                        modifier =
+                                            Modifier
+                                                .weight(
+                                                    1f
+                                                ),
+                                    ) {
 
-                                                color =
-                                                    secondaryText.copy(
-                                                        alpha =
-                                                            0.7f
-                                                    ),
+                                        Text(
+                                            text =
+                                                task.title,
 
-                                                fontSize =
-                                                    11.sp,
-                                            )
-                                        }
+                                            color =
+                                                secondaryText,
+
+                                            fontSize =
+                                                15.sp,
+                                        )
+
+
+                                        task.dueAtMillis
+                                            ?.let {
+                                                    due ->
+
+                                                Spacer(
+                                                    modifier =
+                                                        Modifier.height(
+                                                            3.dp
+                                                        )
+                                                )
+
+
+                                                Text(
+                                                    text =
+                                                        "Due ${formatDueDate(due)}",
+
+                                                    color =
+                                                        secondaryText.copy(
+                                                            alpha =
+                                                                0.7f
+                                                        ),
+
+                                                    fontSize =
+                                                        11.sp,
+                                                )
+                                            }
+                                    }
+                                }
+
+
+                                IconButton(
+                                    onClick = {
+                                        taskPendingDelete = task
+                                    },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete ${task.title}",
+                                        tint = overdueColor,
+                                    )
                                 }
                             }
 
@@ -1484,6 +1528,71 @@ fun CypherTaskScreen(
                 )
             }
         }
+    }
+
+
+    taskPendingDelete?.let { task ->
+
+        AlertDialog(
+            onDismissRequest = {
+                taskPendingDelete = null
+            },
+
+            containerColor = panel,
+
+            title = {
+                Text(
+                    text = "DELETE COMPLETED TASK?",
+                    color = Color.White,
+                    letterSpacing = 1.5.sp,
+                )
+            },
+
+            text = {
+                Text(
+                    text = task.title,
+                    color = secondaryText,
+                    fontSize = 15.sp,
+                )
+            },
+
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteCompletedTask(task)
+                        taskPendingDelete = null
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = overdueColor,
+                    )
+
+                    Spacer(
+                        modifier = Modifier.size(6.dp)
+                    )
+
+                    Text(
+                        text = "DELETE",
+                        color = overdueColor,
+                    )
+                }
+            },
+
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        taskPendingDelete = null
+                    },
+                ) {
+                    Text(
+                        text = "CANCEL",
+                        color = secondaryText,
+                    )
+                }
+            },
+        )
     }
 
 
