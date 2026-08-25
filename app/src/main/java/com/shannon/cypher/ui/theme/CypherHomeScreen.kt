@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,7 @@ import com.shannon.cypher.tasks.CypherTaskRepository
 import com.shannon.cypher.tasks.CypherTaskDateParser
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
+import com.shannon.cypher.notifications.CypherNotificationManager
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
@@ -94,7 +96,9 @@ private data class CalendarCreateRequest(
 
 
 @Composable
-fun CypherHomeScreen() {
+fun CypherHomeScreen(
+    notificationDestination: String? = null,
+) {
 
     val background = Color(0xFF070509)
     val panel = Color(0xFF110D16)
@@ -125,6 +129,38 @@ fun CypherHomeScreen() {
         mutableStateOf(
             false
         )
+    }
+
+    /*
+     * React to navigation requests supplied by MainActivity
+     * when the user taps a Cypher notification.
+     *
+     * Tasks already have a dedicated screen in the current UI.
+     * Calendar and Weather destinations are retained by the
+     * notification framework for their dedicated screens later.
+     */
+    LaunchedEffect(
+        notificationDestination
+    ) {
+
+        when (
+            notificationDestination
+        ) {
+
+            CypherNotificationManager.SCREEN_TASKS -> {
+                currentScreen =
+                    CypherScreen.TASKS
+            }
+
+            CypherNotificationManager.SCREEN_HOME -> {
+                currentScreen =
+                    CypherScreen.HOME
+            }
+        }
+
+
+        isMenuOpen =
+            false
     }
 
     var pendingCalendarTarget by remember { mutableStateOf("today") }

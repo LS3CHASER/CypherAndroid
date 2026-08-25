@@ -1,6 +1,7 @@
 package com.shannon.cypher.tasks
 
 import android.content.Context
+import com.shannon.cypher.notifications.CypherTaskReminderScheduler
 import kotlin.math.max
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -19,6 +20,12 @@ class CypherTaskRepository(
 
     private val taskDao =
         database.taskDao()
+
+
+    private val reminderScheduler =
+        CypherTaskReminderScheduler(
+            context
+        )
 
 
     suspend fun addTask(
@@ -59,9 +66,32 @@ class CypherTaskRepository(
             )
 
 
-        return taskDao.insert(
-            task
-        )
+        val taskId =
+            taskDao.insert(
+                task
+            )
+
+
+        if (
+            taskId > 0L &&
+            dueAtMillis != null
+        ) {
+
+            reminderScheduler
+                .scheduleTaskReminder(
+                    taskId =
+                        taskId,
+
+                    taskTitle =
+                        cleanTitle,
+
+                    dueAtMillis =
+                        dueAtMillis,
+                )
+        }
+
+
+        return taskId
     }
 
 
@@ -91,12 +121,34 @@ class CypherTaskRepository(
                 ?: return false
 
 
-        taskDao.update(
+        val updatedTask =
             task.copy(
                 title =
                     cleanTitle,
             )
+
+
+        taskDao.update(
+            updatedTask
         )
+
+
+        if (
+            !updatedTask.isCompleted
+        ) {
+
+            reminderScheduler
+                .rescheduleTaskReminder(
+                    taskId =
+                        updatedTask.id,
+
+                    taskTitle =
+                        updatedTask.title,
+
+                    dueAtMillis =
+                        updatedTask.dueAtMillis,
+                )
+        }
 
 
         return true
@@ -115,12 +167,34 @@ class CypherTaskRepository(
                 ?: return false
 
 
-        taskDao.update(
+        val updatedTask =
             task.copy(
                 dueAtMillis =
                     dueAtMillis,
             )
+
+
+        taskDao.update(
+            updatedTask
         )
+
+
+        if (
+            !updatedTask.isCompleted
+        ) {
+
+            reminderScheduler
+                .rescheduleTaskReminder(
+                    taskId =
+                        updatedTask.id,
+
+                    taskTitle =
+                        updatedTask.title,
+
+                    dueAtMillis =
+                        updatedTask.dueAtMillis,
+                )
+        }
 
 
         return true
@@ -371,6 +445,12 @@ class CypherTaskRepository(
         )
 
 
+        reminderScheduler
+            .cancelTaskReminder(
+                task.id
+            )
+
+
         return true
     }
 
@@ -394,7 +474,7 @@ class CypherTaskRepository(
         }
 
 
-        taskDao.update(
+        val reopenedTask =
             task.copy(
                 isCompleted =
                     false,
@@ -402,7 +482,24 @@ class CypherTaskRepository(
                 completedAtMillis =
                     null,
             )
+
+
+        taskDao.update(
+            reopenedTask
         )
+
+
+        reminderScheduler
+            .rescheduleTaskReminder(
+                taskId =
+                    reopenedTask.id,
+
+                taskTitle =
+                    reopenedTask.title,
+
+                dueAtMillis =
+                    reopenedTask.dueAtMillis,
+            )
 
 
         return true
@@ -449,6 +546,12 @@ class CypherTaskRepository(
     suspend fun deleteTask(
         taskId: Long,
     ): Boolean {
+
+        reminderScheduler
+            .cancelTaskReminder(
+                taskId
+            )
+
 
         return taskDao.deleteById(
             taskId
