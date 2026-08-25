@@ -66,6 +66,7 @@ import com.shannon.cypher.calendar.CypherCalendarEvent
 import com.shannon.cypher.calendar.CypherCalendarManager
 import com.shannon.cypher.memory.CypherMemoryRepository
 import com.shannon.cypher.tasks.CypherTaskRepository
+import com.shannon.cypher.tasks.CypherTaskDateParser
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.navigation.CypherScreen
@@ -372,7 +373,23 @@ fun CypherHomeScreen() {
             RegexOption.IGNORE_CASE,
         ).containsMatchIn(lower)
 
-        return hasCreationWord && hasCalendarDateWords(message) && hasTime
+        val hasTaskTarget =
+            listOf(
+                "to-do list",
+                "to do list",
+                "todo list",
+                "task list",
+                "my tasks",
+            ).any {
+                it in lower
+            }
+
+        return (
+                hasCreationWord &&
+                        hasCalendarDateWords(message) &&
+                        hasTime &&
+                        !hasTaskTarget
+                )
     }
 
 
@@ -1907,11 +1924,6 @@ fun CypherHomeScreen() {
         /*
          * Remove common polite / conversational lead-ins so
          * natural voice commands still route to Tasks.
-         *
-         * Examples:
-         * "Please mark buy NGK spark plugs as complete"
-         * "Can you mark buy NGK spark plugs as complete"
-         * "Cypher, please delete buy coolant from my to do list"
          */
         text =
             text.replace(
@@ -1941,11 +1953,189 @@ fun CypherHomeScreen() {
     }
 
 
-    fun isTaskAddRequest(message: String): Boolean {
-        val lower = normaliseTaskCommand(message)
-        val hasTarget = listOf("to-do list", "to do list", "todo list", "task list", "my tasks").any { it in lower }
-        val hasIntent = listOf("add ", "create ", "put ").any { lower.startsWith(it) }
-        return hasTarget && hasIntent
+    fun hasTaskTarget(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        return (
+                Regex(
+                    "\\b(?:my\\s+)?(?:to[-\\s]*do|todo|task)\\s*list\\b",
+                    RegexOption.IGNORE_CASE,
+                ).containsMatchIn(lower) ||
+                        Regex(
+                            "\\bmy\\s+tasks?\\b",
+                            RegexOption.IGNORE_CASE,
+                        ).containsMatchIn(lower)
+                )
+    }
+
+
+    fun hasCalendarEntityWord(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        return listOf(
+            "calendar",
+            "appointment",
+            "appointments",
+            "meeting",
+            "meetings",
+            "event",
+            "events",
+        ).any {
+            Regex(
+                "\\b${Regex.escape(it)}\\b"
+            ).containsMatchIn(
+                lower
+            )
+        }
+    }
+
+
+    fun isTaskAddRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        val hasIntent =
+            listOf(
+                "add ",
+                "create ",
+                "put ",
+            ).any {
+                lower.startsWith(
+                    it
+                )
+            }
+
+
+        if (
+            !hasIntent
+        ) {
+
+            return false
+        }
+
+
+        /*
+         * Explicit to-do/task wording always wins.
+         */
+        if (
+            hasTaskTarget(
+                lower
+            )
+        ) {
+
+            return true
+        }
+
+
+        /*
+         * Also allow natural date-only task commands such as:
+         *
+         * "Add buy flowers for Wedding Anniversary on 2nd of November"
+         *
+         * We deliberately leave date+time commands without an
+         * explicit task target available to Calendar, preserving
+         * commands such as:
+         *
+         * "Add dentist appointment tomorrow at 2 PM"
+         */
+        return (
+                CypherTaskDateParser.hasDueDateLanguage(
+                    lower
+                ) &&
+                        !CypherTaskDateParser.hasExplicitTimeLanguage(
+                            lower
+                        ) &&
+                        !hasCalendarEntityWord(
+                            lower
+                        )
+                )
+    }
+
+
+    fun isTaskDueDateEditRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+
+        val hasDateOrTime =
+            CypherTaskDateParser.hasDueDateLanguage(
+                lower
+            ) ||
+                    CypherTaskDateParser.hasExplicitTimeLanguage(
+                        lower
+                    )
+
+
+        if (
+            !hasDateOrTime
+        ) {
+
+            return false
+        }
+
+
+        val explicitTaskReference =
+            hasTaskTarget(
+                lower
+            ) ||
+                    Regex(
+                        "\\btask\\b"
+                    ).containsMatchIn(
+                        lower
+                    )
+
+
+        if (
+            explicitTaskReference
+        ) {
+
+            return (
+                    lower.startsWith("change ") ||
+                            lower.startsWith("update ") ||
+                            lower.startsWith("set ") ||
+                            lower.startsWith("move ") ||
+                            lower.startsWith("reschedule ")
+                    )
+        }
+
+
+        /*
+         * Without an explicit "task" word, keep the natural
+         * "change/set ..." form available for task due dates,
+         * but do not steal obvious Calendar commands.
+         */
+        return (
+                (
+                        lower.startsWith("change ") ||
+                                lower.startsWith("update ") ||
+                                lower.startsWith("set ")
+                        ) &&
+                        !hasCalendarEntityWord(
+                            lower
+                        )
+                )
     }
 
 
@@ -1979,8 +2169,15 @@ fun CypherHomeScreen() {
     }
 
 
-    fun isTaskListRequest(message: String): Boolean {
-        val lower = normaliseTaskCommand(message)
+    fun isTaskListRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
         return listOf(
             "what's on my to-do list",
             "whats on my to-do list",
@@ -2003,12 +2200,21 @@ fun CypherHomeScreen() {
             "read my to-do list",
             "read my to do list",
             "read my todo list",
-        ).any { it in lower }
+        ).any {
+            it in lower
+        }
     }
 
 
-    fun isTaskCompleteRequest(message: String): Boolean {
-        val lower = normaliseTaskCommand(message)
+    fun isTaskCompleteRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
         return (
                 lower.startsWith("mark ") &&
                         (
@@ -2022,97 +2228,379 @@ fun CypherHomeScreen() {
     }
 
 
-    fun isTaskDeleteRequest(message: String): Boolean {
-        val lower = normaliseTaskCommand(message)
-        val deleteIntent = lower.startsWith("remove ") || lower.startsWith("delete ")
-        val taskTarget = listOf(
-            "from my to-do list",
-            "from my to do list",
-            "from my todo list",
-            "from my task list",
-            "from my tasks",
-        ).any { it in lower }
-        return deleteIntent && taskTarget
+    fun isTaskDeleteRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        val deleteIntent =
+            lower.startsWith(
+                "remove "
+            ) ||
+                    lower.startsWith(
+                        "delete "
+                    )
+
+        val taskTarget =
+            listOf(
+                "from my to-do list",
+                "from my to do list",
+                "from my todo list",
+                "from my task list",
+                "from my tasks",
+            ).any {
+                it in lower
+            }
+
+        return deleteIntent &&
+                taskTarget
     }
 
 
-    fun extractTaskAddTitle(message: String): String {
-        var title = normaliseTaskCommand(message)
-        title = title.replace(Regex("(?i)^(add|create|put)\\s+"), "")
-        title = title.replace(
-            Regex("(?i)\\s+(?:to|on|in)\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
-            ""
-        )
-        title = title.replace(
-            Regex("(?i)\\s+(?:to|on|in)\\s+my\\s+tasks$"),
-            ""
-        )
-        return title.replace(Regex("\\s+"), " ").trim()
+    fun stripTaskTargetLanguage(
+        message: String,
+    ): String {
+
+        var text =
+            message
+
+
+        text =
+            text.replace(
+                Regex(
+                    "(?i)\\s+(?:to|on|in)\\s+my\\s+" +
+                            "(?:to-do|to\\s+do|todo|task)\\s+list\\b"
+                ),
+                " "
+            )
+
+
+        text =
+            text.replace(
+                Regex(
+                    "(?i)\\s+(?:to|on|in)\\s+my\\s+tasks\\b"
+                ),
+                " "
+            )
+
+
+        return text
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
     }
 
 
-    fun extractTaskCompleteTitle(message: String): String {
-        var title = normaliseTaskCommand(message)
-        title = title.replace(Regex("(?i)^mark\\s+"), "")
-        title = title.replace(
-            Regex("(?i)\\s+as\\s+(?:done|complete|completed)$"),
-            ""
-        )
-        title = title.replace(Regex("(?i)^(complete|finish)\\s+"), "")
-        title = title.replace(Regex("(?i)^(the\\s+)?task\\s+"), "")
-        return title.replace(Regex("\\s+"), " ").trim()
+    fun extractTaskAddTitle(
+        message: String,
+    ): String {
+
+        var title =
+            normaliseTaskCommand(
+                message
+            )
+
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(add|create|put)\\s+"
+                ),
+                ""
+            )
+
+
+        title =
+            stripTaskTargetLanguage(
+                title
+            )
+
+
+        title =
+            CypherTaskDateParser
+                .stripDueDateTimeLanguage(
+                    title
+                )
+
+
+        return title
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim(
+                ' ',
+                ',',
+                '.',
+                '-',
+            )
     }
 
 
-    fun extractTaskDeleteTitle(message: String): String {
-        var title = normaliseTaskCommand(message)
-        title = title.replace(Regex("(?i)^(remove|delete)\\s+"), "")
-        title = title.replace(
-            Regex("(?i)\\s+from\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"),
-            ""
-        )
-        title = title.replace(
-            Regex("(?i)\\s+from\\s+my\\s+tasks$"),
-            ""
-        )
-        title = title.replace(Regex("(?i)^(the\\s+)?task\\s+"), "")
-        return title.replace(Regex("\\s+"), " ").trim()
+    fun extractTaskDueDateEditTitle(
+        message: String,
+    ): String {
+
+        var title =
+            normaliseTaskCommand(
+                message
+            )
+
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(change|update|set|move|reschedule)\\s+"
+                ),
+                ""
+            )
+
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(?:the\\s+)?(?:task\\s+)?"
+                ),
+                ""
+            )
+
+
+        title =
+            stripTaskTargetLanguage(
+                title
+            )
+
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)\\b(?:due\\s+date|due\\s+time|due)\\b"
+                ),
+                " "
+            )
+
+
+        title =
+            CypherTaskDateParser
+                .stripDueDateTimeLanguage(
+                    title
+                )
+
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)\\s+(?:to|for|on|at)$"
+                ),
+                ""
+            )
+
+
+        return title
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim(
+                ' ',
+                ',',
+                '.',
+                '-',
+            )
     }
 
 
-    fun handleTaskAdd(message: String) {
-        val repository = taskRepository ?: return
-        val title = extractTaskAddTitle(message)
+    fun extractTaskCompleteTitle(
+        message: String,
+    ): String {
 
-        if (title.isBlank()) {
-            reply("I couldn't work out what you wanted me to add to your to-do list.")
+        var title =
+            normaliseTaskCommand(
+                message
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^mark\\s+"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)\\s+as\\s+(?:done|complete|completed)$"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(complete|finish)\\s+"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(the\\s+)?task\\s+"
+                ),
+                ""
+            )
+
+        return title
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
+    }
+
+
+    fun extractTaskDeleteTitle(
+        message: String,
+    ): String {
+
+        var title =
+            normaliseTaskCommand(
+                message
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(remove|delete)\\s+"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)\\s+from\\s+my\\s+(?:to-do|to\\s+do|todo|task)\\s+list$"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)\\s+from\\s+my\\s+tasks$"
+                ),
+                ""
+            )
+
+        title =
+            title.replace(
+                Regex(
+                    "(?i)^(the\\s+)?task\\s+"
+                ),
+                ""
+            )
+
+        return title
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+            .trim()
+    }
+
+
+    fun handleTaskAdd(
+        message: String,
+    ) {
+
+        val repository =
+            taskRepository
+                ?: return
+
+
+        val title =
+            extractTaskAddTitle(
+                message
+            )
+
+
+        if (
+            title.isBlank()
+        ) {
+
+            reply(
+                "I couldn't work out what you wanted me to add to your to-do list."
+            )
+
             return
         }
 
+
+        val dueAtMillis =
+            CypherTaskDateParser
+                .parseDueAtMillis(
+                    message
+                )
+
+
         coroutineScope.launch {
+
             val taskId =
                 repository.addTask(
-                    title
+                    title =
+                        title,
+
+                    dueAtMillis =
+                        dueAtMillis,
                 )
+
 
             val savedTask =
                 if (
                     taskId > 0
                 ) {
+
                     repository.getTaskById(
                         taskId
                     )
+
                 } else {
+
                     null
                 }
+
 
             if (
                 savedTask != null
             ) {
+
+                val dueText =
+                    savedTask.dueAtMillis
+                        ?.let {
+                                due ->
+
+                            " It's due ${
+                                CypherTaskDateParser.formatForSpeech(
+                                    due
+                                )
+                            }."
+                        }
+                        ?: ""
+
+
                 reply(
-                    "Saved locally. I've added ${savedTask.title} to your to-do list."
+                    "Saved locally. I've added ${savedTask.title} to your to-do list.$dueText"
                 )
+
             } else {
+
                 reply(
                     "I couldn't save that task locally."
                 )
@@ -2121,31 +2609,175 @@ fun CypherHomeScreen() {
     }
 
 
-    fun handleTaskList() {
-        val repository = taskRepository ?: return
+    fun handleTaskDueDateEdit(
+        message: String,
+    ) {
+
+        val repository =
+            taskRepository
+                ?: return
+
+
+        val dueAtMillis =
+            CypherTaskDateParser
+                .parseDueAtMillis(
+                    message
+                )
+
+
+        if (
+            dueAtMillis == null
+        ) {
+
+            reply(
+                "I found the task update, but I couldn't work out the new due date or time."
+            )
+
+            return
+        }
+
+
+        val title =
+            extractTaskDueDateEditTitle(
+                message
+            )
+
+
+        if (
+            title.isBlank()
+        ) {
+
+            reply(
+                "I couldn't work out which task you wanted to change."
+            )
+
+            return
+        }
+
 
         coroutineScope.launch {
-            val tasks = repository.getOpenTasks()
 
-            if (tasks.isEmpty()) {
-                reply("Your to-do list is empty.")
+            val matches =
+                repository.findOpenTasks(
+                    title
+                )
+
+
+            if (
+                matches.size != 1
+            ) {
+
+                reply(
+                    "I couldn't find one open task matching $title."
+                )
+
                 return@launch
             }
 
+
+            val task =
+                matches.first()
+
+
+            val updated =
+                repository.updateTaskDueDate(
+                    taskId =
+                        task.id,
+
+                    dueAtMillis =
+                        dueAtMillis,
+                )
+
+
+            if (
+                updated
+            ) {
+
+                reply(
+                    "Done. ${task.title} is now due ${
+                        CypherTaskDateParser.formatForSpeech(
+                            dueAtMillis
+                        )
+                    }."
+                )
+
+            } else {
+
+                reply(
+                    "I couldn't update that task."
+                )
+            }
+        }
+    }
+
+
+    fun handleTaskList() {
+
+        val repository =
+            taskRepository
+                ?: return
+
+
+        coroutineScope.launch {
+
+            val tasks =
+                repository.getOpenTasks()
+
+
+            if (
+                tasks.isEmpty()
+            ) {
+
+                reply(
+                    "Your to-do list is empty."
+                )
+
+                return@launch
+            }
+
+
             val description =
                 tasks
-                    .take(10)
-                    .mapIndexed { index, task ->
-                        "${index + 1}. ${task.title}"
+                    .take(
+                        10
+                    )
+                    .mapIndexed {
+                            index,
+                            task ->
+
+                        val dueText =
+                            task.dueAtMillis
+                                ?.let {
+                                        due ->
+
+                                    ", due ${
+                                        CypherTaskDateParser.formatForSpeech(
+                                            due
+                                        )
+                                    }"
+                                }
+                                ?: ""
+
+
+                        "${index + 1}. ${task.title}$dueText"
                     }
-                    .joinToString(". ")
+                    .joinToString(
+                        ". "
+                    )
+
 
             val extra =
-                if (tasks.size > 10) {
+                if (
+                    tasks.size > 10
+                ) {
+
                     " You also have ${tasks.size - 10} more tasks."
+
                 } else {
+
                     ""
                 }
+
 
             reply(
                 "You have ${tasks.size} open ${if (tasks.size == 1) "task" else "tasks"}. " +
@@ -2155,43 +2787,105 @@ fun CypherHomeScreen() {
     }
 
 
-    fun handleTaskComplete(message: String) {
-        val repository = taskRepository ?: return
-        val title = extractTaskCompleteTitle(message)
+    fun handleTaskComplete(
+        message: String,
+    ) {
 
-        if (title.isBlank()) {
-            reply("I couldn't work out which task you wanted to complete.")
+        val repository =
+            taskRepository
+                ?: return
+
+        val title =
+            extractTaskCompleteTitle(
+                message
+            )
+
+
+        if (
+            title.isBlank()
+        ) {
+
+            reply(
+                "I couldn't work out which task you wanted to complete."
+            )
+
             return
         }
 
-        coroutineScope.launch {
-            val task = repository.completeTask(title)
 
-            if (task == null) {
-                reply("I couldn't find an open task matching $title.")
+        coroutineScope.launch {
+
+            val task =
+                repository.completeTask(
+                    title
+                )
+
+
+            if (
+                task == null
+            ) {
+
+                reply(
+                    "I couldn't find an open task matching $title."
+                )
+
             } else {
-                reply("Done. I've marked ${task.title} as complete.")
+
+                reply(
+                    "Done. I've marked ${task.title} as complete."
+                )
             }
         }
     }
 
 
-    fun handleTaskDelete(message: String) {
-        val repository = taskRepository ?: return
-        val title = extractTaskDeleteTitle(message)
+    fun handleTaskDelete(
+        message: String,
+    ) {
 
-        if (title.isBlank()) {
-            reply("I couldn't work out which task you wanted to remove.")
+        val repository =
+            taskRepository
+                ?: return
+
+        val title =
+            extractTaskDeleteTitle(
+                message
+            )
+
+
+        if (
+            title.isBlank()
+        ) {
+
+            reply(
+                "I couldn't work out which task you wanted to remove."
+            )
+
             return
         }
 
-        coroutineScope.launch {
-            val task = repository.deleteTask(title)
 
-            if (task == null) {
-                reply("I couldn't find an open task matching $title.")
+        coroutineScope.launch {
+
+            val task =
+                repository.deleteTask(
+                    title
+                )
+
+
+            if (
+                task == null
+            ) {
+
+                reply(
+                    "I couldn't find an open task matching $title."
+                )
+
             } else {
-                reply("Done. I've removed ${task.title} from your to-do list.")
+
+                reply(
+                    "Done. I've removed ${task.title} from your to-do list."
+                )
             }
         }
     }
@@ -2258,6 +2952,22 @@ fun CypherHomeScreen() {
                         runCalendarWriteAction { handleDeleteRequest(normalizedText) }
                     }
 
+                    isTaskDueDateEditRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskDueDateEdit(
+                            normalizedText
+                        )
+                    }
+
+                    isTaskAddRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskAdd(
+                            normalizedText
+                        )
+                    }
+
                     isCalendarEditRequest(normalizedText) -> {
                         runCalendarWriteAction { handleEditRequest(normalizedText) }
                     }
@@ -2270,15 +2980,6 @@ fun CypherHomeScreen() {
 
                     isCalendarCreateRequest(normalizedText) -> {
                         requestCalendarCreate(normalizedText)
-                    }
-
-
-                    isTaskAddRequest(
-                        normalizedText
-                    ) -> {
-                        handleTaskAdd(
-                            normalizedText
-                        )
                     }
 
                     isTaskScreenRequest(
