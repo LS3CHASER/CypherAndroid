@@ -2,6 +2,8 @@ package com.shannon.cypher.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -71,6 +73,7 @@ import com.shannon.cypher.tasks.CypherTaskDateParser
 import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.notifications.CypherNotificationManager
+import com.shannon.cypher.notifications.CypherCalendarReminderScheduler
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
@@ -116,6 +119,18 @@ fun CypherHomeScreen(
     var microphoneLevel by remember { mutableStateOf(0f) }
     var recognizedText by remember { mutableStateOf("") }
     var cypherReply by remember { mutableStateOf("") }
+
+    /*
+     * Timing marker used only for diagnostics.
+     * It lets Logcat show the time from final speech recognition
+     * to Cypher actually beginning audio playback.
+     */
+    var commandRecognizedAtMillis by
+    remember {
+        mutableStateOf(
+            0L
+        )
+    }
 
     var currentScreen by
     remember {
@@ -184,9 +199,52 @@ fun CypherHomeScreen(
 
     val apiClient = remember { CypherApiClient() }
 
+
+    /*
+     * Silently wake CypherOS as soon as the app opens.
+     *
+     * This runs in the background and does not change the UI,
+     * speak, or interfere with local Tasks/Calendar features.
+     */
+    LaunchedEffect(
+        Unit
+    ) {
+
+        if (
+            !isPreview
+        ) {
+
+            withContext(
+                Dispatchers.IO
+            ) {
+
+                apiClient.warmUp()
+            }
+        }
+    }
+
+
     val calendarManager = remember {
         if (isPreview) null else CypherCalendarManager(context)
     }
+
+
+    val calendarReminderScheduler =
+        remember {
+
+            if (
+                isPreview
+            ) {
+
+                null
+
+            } else {
+
+                CypherCalendarReminderScheduler(
+                    context
+                )
+            }
+        }
 
 
     val memoryRepository =
@@ -231,18 +289,106 @@ fun CypherHomeScreen(
     fun speakReply(reply: String) {
         if (reply.isBlank()) return
 
+        val speechRequestedAt =
+            SystemClock.elapsedRealtime()
+
+        if (
+            commandRecognizedAtMillis > 0L
+        ) {
+
+            Log.d(
+                "CypherTiming",
+                "Speech requested " +
+                        "${speechRequestedAt - commandRecognizedAtMillis} ms " +
+                        "after recognition."
+            )
+        }
+
         coroutineScope.launch {
             try {
                 remoteSpeaker?.speak(
                     text = reply,
-                    onStart = { isSpeaking = true },
-                    onDone = { isSpeaking = false },
+                    onStart = {
+
+                        isSpeaking =
+                            true
+
+                        val audioStartedAt =
+                            SystemClock.elapsedRealtime()
+
+                        Log.d(
+                            "CypherTiming",
+                            "Remote audio started " +
+                                    "${audioStartedAt - speechRequestedAt} ms " +
+                                    "after speakReply()."
+                        )
+
+                        if (
+                            commandRecognizedAtMillis > 0L
+                        ) {
+
+                            Log.d(
+                                "CypherTiming",
+                                "TOTAL recognition-to-audio: " +
+                                        "${audioStartedAt - commandRecognizedAtMillis} ms"
+                            )
+                        }
+                    },
+                    onDone = {
+
+                        isSpeaking =
+                            false
+
+                        Log.d(
+                            "CypherTiming",
+                            "Remote audio playback finished."
+                        )
+                    },
                 )
-            } catch (_: Exception) {
+
+            } catch (
+                exception: Exception
+            ) {
+
+                Log.w(
+                    "CypherTiming",
+                    "Remote speech failed. Using Android TTS fallback.",
+                    exception,
+                )
+
                 fallbackSpeaker?.speak(
                     text = reply,
-                    onStart = { isSpeaking = true },
-                    onDone = { isSpeaking = false },
+                    onStart = {
+
+                        isSpeaking =
+                            true
+
+                        val fallbackStartedAt =
+                            SystemClock.elapsedRealtime()
+
+                        Log.d(
+                            "CypherTiming",
+                            "Fallback TTS started " +
+                                    "${fallbackStartedAt - speechRequestedAt} ms " +
+                                    "after speakReply()."
+                        )
+
+                        if (
+                            commandRecognizedAtMillis > 0L
+                        ) {
+
+                            Log.d(
+                                "CypherTiming",
+                                "TOTAL recognition-to-fallback-audio: " +
+                                        "${fallbackStartedAt - commandRecognizedAtMillis} ms"
+                            )
+                        }
+                    },
+                    onDone = {
+
+                        isSpeaking =
+                            false
+                    },
                 )
             }
         }
@@ -385,29 +531,99 @@ fun CypherHomeScreen(
     }
 
 
-    fun hasCalendarDateWords(message: String): Boolean {
-        val lower = message.lowercase()
-        val relative = listOf(
-            "today", "tomorrow", "monday", "tuesday", "wednesday",
-            "thursday", "friday", "saturday", "sunday",
-        ).any { it in lower }
+    fun hasCalendarDateWords(
+        message: String,
+    ): Boolean {
 
-        return relative || CypherCalendarDateParser.containsSpecificDate(message)
+        val lower =
+            message.lowercase()
+
+
+        val relative =
+            listOf(
+                "today",
+                "tonight",
+                "tomorrow",
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ).any {
+
+                it in lower
+            }
+
+
+        return relative ||
+                CypherCalendarDateParser
+                    .containsSpecificDate(
+                        message
+                    )
     }
 
 
     fun isCalendarCreateRequest(message: String): Boolean {
-        val lower = message.lowercase()
-        val creationWords = listOf(
-            "add", "create", "put", "schedule", "book", "make", "set",
-        )
-        val hasCreationWord = creationWords.any {
-            Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(lower)
-        }
-        val hasTime = Regex(
-            "\\b\\d{1,2}(?::\\d{2})?\\s*(?:a\\.?m\\.?|p\\.?m\\.?)\\b",
-            RegexOption.IGNORE_CASE,
-        ).containsMatchIn(lower)
+
+        /*
+         * Android speech recognition commonly returns times as
+         * "10:27 p.m." rather than "10:27 pm".
+         *
+         * Normalise that punctuation before checking whether this
+         * is a local Calendar creation command.
+         */
+        val lower =
+            message
+                .lowercase()
+                .replace(
+                    Regex(
+                        "\\ba\\.m\\.?",
+                        RegexOption.IGNORE_CASE,
+                    ),
+                    "am",
+                )
+                .replace(
+                    Regex(
+                        "\\bp\\.m\\.?",
+                        RegexOption.IGNORE_CASE,
+                    ),
+                    "pm",
+                )
+
+
+        val creationWords =
+            listOf(
+                "add",
+                "create",
+                "put",
+                "schedule",
+                "book",
+                "make",
+                "set",
+            )
+
+
+        val hasCreationWord =
+            creationWords.any {
+
+                Regex(
+                    "\\b${Regex.escape(it)}\\b"
+                ).containsMatchIn(
+                    lower
+                )
+            }
+
+
+        val hasTime =
+            Regex(
+                "\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)\\b",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(
+                lower
+            )
+
 
         val hasTaskTarget =
             listOf(
@@ -417,12 +633,16 @@ fun CypherHomeScreen(
                 "task list",
                 "my tasks",
             ).any {
+
                 it in lower
             }
 
+
         return (
                 hasCreationWord &&
-                        hasCalendarDateWords(message) &&
+                        hasCalendarDateWords(
+                            message
+                        ) &&
                         hasTime &&
                         !hasTaskTarget
                 )
@@ -632,32 +852,209 @@ fun CypherHomeScreen(
     }
 
 
-    fun parseReminderMinutes(message: String): Int? {
-        val lower = message.lowercase()
+    fun parseReminderMinutes(
+        message: String,
+    ): Int? {
 
-        if (Regex("\\bhalf\\s+an\\s+hour\\s+before\\b").containsMatchIn(lower)) {
+        val lower =
+            message
+                .lowercase()
+
+
+        /*
+         * Speech recognition often writes small numbers as words:
+         *
+         * "two minutes before"
+         * "fifteen minutes before"
+         * "one hour before"
+         *
+         * Convert common spoken numbers before applying the normal
+         * numeric reminder patterns.
+         */
+        fun spokenNumberToInt(
+            value: String,
+        ): Int? {
+
+            val cleaned =
+                value
+                    .lowercase()
+                    .replace(
+                        "-",
+                        " ",
+                    )
+                    .trim()
+
+
+            cleaned
+                .toIntOrNull()
+                ?.let {
+
+                    return it
+                }
+
+
+            val directNumbers =
+                mapOf(
+                    "zero" to 0,
+                    "one" to 1,
+                    "a" to 1,
+                    "an" to 1,
+                    "two" to 2,
+                    "three" to 3,
+                    "four" to 4,
+                    "five" to 5,
+                    "six" to 6,
+                    "seven" to 7,
+                    "eight" to 8,
+                    "nine" to 9,
+                    "ten" to 10,
+                    "eleven" to 11,
+                    "twelve" to 12,
+                    "thirteen" to 13,
+                    "fourteen" to 14,
+                    "fifteen" to 15,
+                    "sixteen" to 16,
+                    "seventeen" to 17,
+                    "eighteen" to 18,
+                    "nineteen" to 19,
+                    "twenty" to 20,
+                    "thirty" to 30,
+                    "forty" to 40,
+                    "fifty" to 50,
+                    "sixty" to 60,
+                )
+
+
+            directNumbers[
+                cleaned
+            ]
+                ?.let {
+
+                    return it
+                }
+
+
+            val parts =
+                cleaned
+                    .split(
+                        Regex("\\s+")
+                    )
+
+
+            if (
+                parts.size == 2
+            ) {
+
+                val tens =
+                    mapOf(
+                        "twenty" to 20,
+                        "thirty" to 30,
+                        "forty" to 40,
+                        "fifty" to 50,
+                    )[
+                        parts[0]
+                    ]
+
+
+                val ones =
+                    mapOf(
+                        "one" to 1,
+                        "two" to 2,
+                        "three" to 3,
+                        "four" to 4,
+                        "five" to 5,
+                        "six" to 6,
+                        "seven" to 7,
+                        "eight" to 8,
+                        "nine" to 9,
+                    )[
+                        parts[1]
+                    ]
+
+
+                if (
+                    tens != null &&
+                    ones != null
+                ) {
+
+                    return tens +
+                            ones
+                }
+            }
+
+
+            return null
+        }
+
+
+        if (
+            Regex(
+                "\\bhalf\\s+an\\s+hour\\s+before\\b"
+            ).containsMatchIn(
+                lower
+            )
+        ) {
+
             return 30
         }
 
-        if (Regex("\\b(?:an|one)\\s+hour\\s+before\\b").containsMatchIn(lower)) {
-            return 60
-        }
 
-        if (Regex("\\b(?:a|one)\\s+day\\s+before\\b").containsMatchIn(lower)) {
-            return 1440
-        }
+        val numberPattern =
+            "(\\d+|" +
+                    "zero|one|two|three|four|five|six|seven|eight|nine|" +
+                    "ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|" +
+                    "seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|" +
+                    "(?:twenty|thirty|forty|fifty)[ -](?:one|two|three|four|five|six|seven|eight|nine)|" +
+                    "a|an)"
 
-        Regex("\\b(\\d+)\\s+minutes?\\s+before\\b").find(lower)?.let {
-            return it.groupValues[1].toIntOrNull()
-        }
 
-        Regex("\\b(\\d+)\\s+hours?\\s+before\\b").find(lower)?.let {
-            return it.groupValues[1].toIntOrNull()?.times(60)
-        }
+        Regex(
+            "\\b$numberPattern\\s+minutes?\\s+before\\b",
+            RegexOption.IGNORE_CASE,
+        ).find(
+            lower
+        )
+            ?.let {
 
-        Regex("\\b(\\d+)\\s+days?\\s+before\\b").find(lower)?.let {
-            return it.groupValues[1].toIntOrNull()?.times(1440)
-        }
+                return spokenNumberToInt(
+                    it.groupValues[1]
+                )
+            }
+
+
+        Regex(
+            "\\b$numberPattern\\s+hours?\\s+before\\b",
+            RegexOption.IGNORE_CASE,
+        ).find(
+            lower
+        )
+            ?.let {
+
+                return spokenNumberToInt(
+                    it.groupValues[1]
+                )
+                    ?.times(
+                        60
+                    )
+            }
+
+
+        Regex(
+            "\\b$numberPattern\\s+days?\\s+before\\b",
+            RegexOption.IGNORE_CASE,
+        ).find(
+            lower
+        )
+            ?.let {
+
+                return spokenNumberToInt(
+                    it.groupValues[1]
+                )
+                    ?.times(
+                        1440
+                    )
+            }
+
 
         return null
     }
@@ -1095,6 +1492,28 @@ fun CypherHomeScreen(
             return
         }
 
+
+        request.reminderMinutes
+            ?.let {
+                    reminderMinutes ->
+
+                calendarReminderScheduler
+                    ?.scheduleCalendarReminder(
+                        eventId =
+                            eventId,
+
+                        eventTitle =
+                            request.title,
+
+                        eventStartMillis =
+                            request.startTimeMillis,
+
+                        reminderMinutesBefore =
+                            reminderMinutes,
+                    )
+            }
+
+
         val reminderText = request.reminderMinutes?.let {
             " I've also set a reminder ${reminderDescription(it)}."
         } ?: ""
@@ -1273,10 +1692,28 @@ fun CypherHomeScreen(
         ) == true
 
         if (set) {
+
+            calendarReminderScheduler
+                ?.scheduleCalendarReminder(
+                    eventId =
+                        event.id,
+
+                    eventTitle =
+                        event.title,
+
+                    eventStartMillis =
+                        event.startTimeMillis,
+
+                    reminderMinutesBefore =
+                        reminderMinutes,
+                )
+
+
             reply(
                 "Done. I've set a reminder ${reminderDescription(reminderMinutes)} " +
                         "for ${event.title}."
             )
+
         } else {
             reply("I couldn't set that calendar reminder.")
         }
@@ -2242,6 +2679,192 @@ fun CypherHomeScreen(
     }
 
 
+    fun isTaskDateListRequest(
+        message: String,
+    ): Boolean {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        val hasTaskReadIntent =
+            isTaskListRequest(
+                lower
+            ) ||
+                    listOf(
+                        "tasks due",
+                        "task due",
+                        "what do i have due",
+                        "what have i got due",
+                        "what is due",
+                        "what's due",
+                        "whats due",
+                    ).any {
+                        it in lower
+                    }
+
+        val hasDateTarget =
+            Regex(
+                "\\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(
+                lower
+            )
+
+        return hasTaskReadIntent &&
+                hasDateTarget
+    }
+
+
+    fun resolveTaskDateRange(
+        message: String,
+    ): Triple<Long, Long, String>? {
+
+        val lower =
+            normaliseTaskCommand(
+                message
+            )
+
+        val target =
+            Regex(
+                "\\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\\b",
+                RegexOption.IGNORE_CASE,
+            ).find(
+                lower
+            )
+                ?.value
+                ?.lowercase()
+                ?: return null
+
+
+        val calendar =
+            Calendar.getInstance()
+                .apply {
+
+                    set(
+                        Calendar.HOUR_OF_DAY,
+                        0,
+                    )
+
+                    set(
+                        Calendar.MINUTE,
+                        0,
+                    )
+
+                    set(
+                        Calendar.SECOND,
+                        0,
+                    )
+
+                    set(
+                        Calendar.MILLISECOND,
+                        0,
+                    )
+                }
+
+
+        when (
+            target
+        ) {
+
+            "today" -> {
+            }
+
+            "tomorrow" -> {
+
+                calendar.add(
+                    Calendar.DAY_OF_YEAR,
+                    1,
+                )
+            }
+
+            else -> {
+
+                val targetDay =
+                    when (
+                        target
+                    ) {
+
+                        "monday" ->
+                            Calendar.MONDAY
+
+                        "tuesday" ->
+                            Calendar.TUESDAY
+
+                        "wednesday" ->
+                            Calendar.WEDNESDAY
+
+                        "thursday" ->
+                            Calendar.THURSDAY
+
+                        "friday" ->
+                            Calendar.FRIDAY
+
+                        "saturday" ->
+                            Calendar.SATURDAY
+
+                        "sunday" ->
+                            Calendar.SUNDAY
+
+                        else ->
+                            return null
+                    }
+
+
+                val currentDay =
+                    calendar.get(
+                        Calendar.DAY_OF_WEEK
+                    )
+
+
+                var daysAhead =
+                    (
+                            targetDay -
+                                    currentDay +
+                                    7
+                            ) % 7
+
+
+                /*
+                 * Saying "Friday" on a Friday means today.
+                 * Otherwise use the next occurrence of that weekday.
+                 */
+                if (
+                    daysAhead != 0
+                ) {
+
+                    calendar.add(
+                        Calendar.DAY_OF_YEAR,
+                        daysAhead,
+                    )
+                }
+            }
+        }
+
+
+        val start =
+            calendar.timeInMillis
+
+
+        calendar.add(
+            Calendar.DAY_OF_YEAR,
+            1,
+        )
+
+
+        val end =
+            calendar.timeInMillis
+
+
+        return Triple(
+            start,
+            end,
+            target,
+        )
+    }
+
+
     fun isTaskCompleteRequest(
         message: String,
     ): Boolean {
@@ -2747,6 +3370,140 @@ fun CypherHomeScreen(
     }
 
 
+    fun handleTaskDateList(
+        message: String,
+    ) {
+
+        val repository =
+            taskRepository
+                ?: return
+
+
+        val dateRange =
+            resolveTaskDateRange(
+                message
+            )
+
+
+        if (
+            dateRange == null
+        ) {
+
+            reply(
+                "I couldn't work out which day you wanted me to check."
+            )
+
+            return
+        }
+
+
+        val (
+            startMillis,
+            endMillis,
+            spokenTarget,
+        ) =
+            dateRange
+
+
+        coroutineScope.launch {
+
+            val tasks =
+                repository
+                    .getOpenTasks()
+                    .filter {
+                            task ->
+
+                        val due =
+                            task.dueAtMillis
+
+                        due != null &&
+                                due >= startMillis &&
+                                due < endMillis
+                    }
+
+
+            if (
+                tasks.isEmpty()
+            ) {
+
+                reply(
+                    when (
+                        spokenTarget
+                    ) {
+
+                        "today" ->
+                            "You don't have any open tasks due today."
+
+                        "tomorrow" ->
+                            "You don't have any open tasks due tomorrow."
+
+                        else ->
+                            "You don't have any open tasks due $spokenTarget."
+                    }
+                )
+
+                return@launch
+            }
+
+
+            val description =
+                tasks
+                    .take(
+                        10
+                    )
+                    .mapIndexed {
+                            index,
+                            task ->
+
+                        val dueText =
+                            task.dueAtMillis
+                                ?.let {
+                                        due ->
+
+                                    ", due ${
+                                        CypherTaskDateParser.formatForSpeech(
+                                            due
+                                        )
+                                    }"
+                                }
+                                ?: ""
+
+
+                        "${index + 1}. ${task.title}$dueText"
+                    }
+                    .joinToString(
+                        ". "
+                    )
+
+
+            val extra =
+                if (
+                    tasks.size > 10
+                ) {
+
+                    " You also have ${tasks.size - 10} more tasks due $spokenTarget."
+
+                } else {
+
+                    ""
+                }
+
+
+            reply(
+                "You have ${tasks.size} open ${
+                    if (
+                        tasks.size == 1
+                    ) {
+                        "task"
+                    } else {
+                        "tasks"
+                    }
+                } due $spokenTarget. $description.$extra"
+            )
+        }
+    }
+
+
     fun handleTaskList() {
 
         val repository =
@@ -2934,17 +3691,55 @@ fun CypherHomeScreen(
         isSpeaking = false
         cypherReply = ""
 
+        val messageRequestStartedAt =
+            SystemClock.elapsedRealtime()
+
+        Log.d(
+            "CypherTiming",
+            "Sending recognized command to CypherOS."
+        )
+
         coroutineScope.launch {
             try {
                 val answer = withContext(Dispatchers.IO) {
                     apiClient.sendMessage(message)
                 }
 
+                val messageReplyReceivedAt =
+                    SystemClock.elapsedRealtime()
+
+                Log.d(
+                    "CypherTiming",
+                    "CypherOS text reply received in " +
+                            "${messageReplyReceivedAt - messageRequestStartedAt} ms."
+                )
+
+                if (
+                    commandRecognizedAtMillis > 0L
+                ) {
+
+                    Log.d(
+                        "CypherTiming",
+                        "Recognition-to-text-reply: " +
+                                "${messageReplyReceivedAt - commandRecognizedAtMillis} ms."
+                    )
+                }
+
                 cypherReply = answer
                 isThinking = false
                 speakReply(answer)
 
-            } catch (_: Exception) {
+            } catch (
+                exception: Exception
+            ) {
+
+                Log.e(
+                    "CypherTiming",
+                    "CypherOS message request failed after " +
+                            "${SystemClock.elapsedRealtime() - messageRequestStartedAt} ms.",
+                    exception,
+                )
+
                 isThinking = false
                 cypherReply = "I couldn't connect to CypherOS."
             }
@@ -2966,6 +3761,15 @@ fun CypherHomeScreen(
                 microphoneLevel = level
             },
             onTextRecognized = { text ->
+
+                commandRecognizedAtMillis =
+                    SystemClock.elapsedRealtime()
+
+                Log.d(
+                    "CypherTiming",
+                    "Final speech recognition received: $text"
+                )
+
                 val normalizedText =
                     CypherNameNormalizer.normalize(text)
 
@@ -3030,6 +3834,15 @@ fun CypherHomeScreen(
 
                         reply(
                             "Opening your to-do list."
+                        )
+                    }
+
+
+                    isTaskDateListRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskDateList(
+                            normalizedText
                         )
                     }
 

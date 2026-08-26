@@ -2,33 +2,175 @@ package com.shannon.cypher.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.network.SpeechStream
+import java.io.BufferedInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedInputStream
 
 
 class CypherRemoteSpeaker(
     context: Context,
 ) {
 
+    companion object {
+
+        private const val TAG =
+            "CypherAudio"
+
+        private const val PRE_BUFFER_BYTES =
+            4_096
+    }
+
+
     private val appContext =
         context.applicationContext
 
+
     private val apiClient =
         CypherApiClient()
+
+
+    private val audioManager =
+        appContext.getSystemService(
+            Context.AUDIO_SERVICE
+        ) as AudioManager
+
+
+    private val mainHandler =
+        Handler(
+            Looper.getMainLooper()
+        )
+
+
+    private val speechAudioAttributes =
+        AudioAttributes
+            .Builder()
+            .setUsage(
+                AudioAttributes.USAGE_ASSISTANT
+            )
+            .setContentType(
+                AudioAttributes.CONTENT_TYPE_SPEECH
+            )
+            .build()
 
 
     private var audioTrack:
             AudioTrack? = null
 
 
+    private var audioFocusRequest:
+            AudioFocusRequest? = null
+
+
+    private var hasAudioFocus =
+        false
+
+
     @Volatile
     private var stopRequested =
         false
+
+
+    private val audioFocusChangeListener =
+        AudioManager.OnAudioFocusChangeListener {
+                focusChange ->
+
+            when (
+                focusChange
+            ) {
+
+                AudioManager.AUDIOFOCUS_LOSS -> {
+
+                    Log.d(
+                        TAG,
+                        "Audio focus lost."
+                    )
+
+                    stop()
+                }
+
+
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+
+                    Log.d(
+                        TAG,
+                        "Audio focus lost temporarily."
+                    )
+
+                    try {
+
+                        audioTrack
+                            ?.pause()
+
+                    } catch (
+                        _: IllegalStateException
+                    ) {
+                    }
+                }
+
+
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+
+                    Log.d(
+                        TAG,
+                        "Audio focus loss: can duck."
+                    )
+
+                    try {
+
+                        audioTrack
+                            ?.setVolume(
+                                0.65f
+                            )
+
+                    } catch (
+                        _: Exception
+                    ) {
+                    }
+                }
+
+
+                AudioManager.AUDIOFOCUS_GAIN -> {
+
+                    Log.d(
+                        TAG,
+                        "Audio focus gained."
+                    )
+
+                    try {
+
+                        audioTrack
+                            ?.setVolume(
+                                1.0f
+                            )
+
+                        if (
+                            audioTrack
+                                ?.playState ==
+                            AudioTrack.PLAYSTATE_PAUSED
+                        ) {
+
+                            audioTrack
+                                ?.play()
+                        }
+
+                    } catch (
+                        _: IllegalStateException
+                    ) {
+                    }
+                }
+            }
+        }
 
 
     suspend fun speak(
@@ -37,7 +179,10 @@ class CypherRemoteSpeaker(
         onDone: () -> Unit = {},
     ) {
 
-        if (text.isBlank()) {
+        if (
+            text.isBlank()
+        ) {
+
             return
         }
 
@@ -46,6 +191,10 @@ class CypherRemoteSpeaker(
 
         stopRequested =
             false
+
+
+        val totalStartMillis =
+            SystemClock.elapsedRealtime()
 
 
         withContext(
@@ -61,16 +210,37 @@ class CypherRemoteSpeaker(
 
             try {
 
+                val streamRequestStart =
+                    SystemClock.elapsedRealtime()
+
+
+                Log.d(
+                    TAG,
+                    "Opening /speak stream..."
+                )
+
+
                 speechStream =
                     apiClient.openSpeechStream(
                         text
                     )
 
 
+                val streamOpenedAt =
+                    SystemClock.elapsedRealtime()
+
+
+                Log.d(
+                    TAG,
+                    "/speak stream opened in " +
+                            "${streamOpenedAt - streamRequestStart} ms"
+                )
+
+
                 val input =
                     BufferedInputStream(
                         speechStream.inputStream,
-                        32_768,
+                        8_192,
                     )
 
 
@@ -94,25 +264,16 @@ class CypherRemoteSpeaker(
 
                 val audioTrackBufferSize =
                     maxOf(
-                        minimumBufferSize * 4,
-                        32_768,
+                        minimumBufferSize * 2,
+                        16_384,
                     )
 
 
                 track =
-                    AudioTrack.Builder()
+                    AudioTrack
+                        .Builder()
                         .setAudioAttributes(
-                            AudioAttributes
-                                .Builder()
-                                .setUsage(
-                                    AudioAttributes
-                                        .USAGE_ASSISTANT
-                                )
-                                .setContentType(
-                                    AudioAttributes
-                                        .CONTENT_TYPE_SPEECH
-                                )
-                                .build()
+                            speechAudioAttributes
                         )
                         .setAudioFormat(
                             AudioFormat
@@ -141,13 +302,13 @@ class CypherRemoteSpeaker(
                     track
 
 
-                val preBufferTarget =
-                    16_384
+                val firstAudioWaitStart =
+                    SystemClock.elapsedRealtime()
 
 
                 val preBuffer =
                     ByteArray(
-                        preBufferTarget
+                        PRE_BUFFER_BYTES
                     )
 
 
@@ -173,6 +334,7 @@ class CypherRemoteSpeaker(
                     if (
                         bytesRead == -1
                     ) {
+
                         break
                     }
 
@@ -182,6 +344,18 @@ class CypherRemoteSpeaker(
                 }
 
 
+                val firstAudioReadyAt =
+                    SystemClock.elapsedRealtime()
+
+
+                Log.d(
+                    TAG,
+                    "Initial PCM ready: " +
+                            "$preBufferBytes bytes after " +
+                            "${firstAudioReadyAt - firstAudioWaitStart} ms"
+                )
+
+
                 if (
                     stopRequested ||
                     preBufferBytes <= 0
@@ -189,6 +363,23 @@ class CypherRemoteSpeaker(
 
                     return@withContext
                 }
+
+
+                val focusGranted =
+                    requestSpeechAudioFocus()
+
+
+                Log.d(
+                    TAG,
+                    "Audio focus request: " +
+                            if (
+                                focusGranted
+                            ) {
+                                "GRANTED"
+                            } else {
+                                "NOT GRANTED - attempting playback anyway"
+                            }
+                )
 
 
                 var leftoverByte:
@@ -208,8 +399,13 @@ class CypherRemoteSpeaker(
                             initialBytes - 1
                         ]
 
-                    initialBytes -= 1
+                    initialBytes -=
+                        1
                 }
+
+
+                val playRequestedAt =
+                    SystemClock.elapsedRealtime()
 
 
                 track.play()
@@ -221,6 +417,13 @@ class CypherRemoteSpeaker(
 
                     onStart()
                 }
+
+
+                Log.d(
+                    TAG,
+                    "AudioTrack.play() called after " +
+                            "${playRequestedAt - totalStartMillis} ms"
+                )
 
 
                 if (
@@ -264,6 +467,7 @@ class CypherRemoteSpeaker(
                     if (
                         bytesRead == -1
                     ) {
+
                         break
                     }
 
@@ -271,6 +475,7 @@ class CypherRemoteSpeaker(
                     if (
                         bytesRead <= 0
                     ) {
+
                         continue
                     }
 
@@ -324,7 +529,8 @@ class CypherRemoteSpeaker(
                                 playbackBytes - 1
                             ]
 
-                        playbackBytes -= 1
+                        playbackBytes -=
+                            1
                     }
 
 
@@ -344,18 +550,10 @@ class CypherRemoteSpeaker(
                 }
 
 
-                /*
-                 * PCM16 mono:
-                 * 2 bytes = 1 sample/frame.
-                 */
                 val totalFramesWritten =
                     totalBytesWritten / 2L
 
 
-                /*
-                 * Wait until AudioTrack has actually
-                 * played every frame we queued.
-                 */
                 while (
                     !stopRequested &&
                     track.playState ==
@@ -381,6 +579,13 @@ class CypherRemoteSpeaker(
                         20
                     )
                 }
+
+
+                Log.d(
+                    TAG,
+                    "Speech playback complete. Total speaker time: " +
+                            "${SystemClock.elapsedRealtime() - totalStartMillis} ms"
+                )
 
 
             } finally {
@@ -420,6 +625,9 @@ class CypherRemoteSpeaker(
                 }
 
 
+                abandonSpeechAudioFocus()
+
+
                 withContext(
                     Dispatchers.Main
                 ) {
@@ -427,6 +635,137 @@ class CypherRemoteSpeaker(
                     onDone()
                 }
             }
+        }
+    }
+
+
+    private fun requestSpeechAudioFocus():
+            Boolean {
+
+        return if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.O
+        ) {
+
+            val request =
+                AudioFocusRequest
+                    .Builder(
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                    )
+                    .setAudioAttributes(
+                        speechAudioAttributes
+                    )
+                    .setOnAudioFocusChangeListener(
+                        audioFocusChangeListener,
+                        mainHandler,
+                    )
+                    .setAcceptsDelayedFocusGain(
+                        false
+                    )
+                    .setWillPauseWhenDucked(
+                        true
+                    )
+                    .build()
+
+
+            audioFocusRequest =
+                request
+
+
+            val result =
+                audioManager.requestAudioFocus(
+                    request
+                )
+
+
+            hasAudioFocus =
+                result ==
+                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+
+
+            hasAudioFocus
+
+        } else {
+
+            @Suppress(
+                "DEPRECATION"
+            )
+            val result =
+                audioManager.requestAudioFocus(
+                    audioFocusChangeListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+                )
+
+
+            hasAudioFocus =
+                result ==
+                        AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+
+
+            hasAudioFocus
+        }
+    }
+
+
+    private fun abandonSpeechAudioFocus() {
+
+        if (
+            !hasAudioFocus
+        ) {
+
+            audioFocusRequest =
+                null
+
+            return
+        }
+
+
+        try {
+
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.O
+            ) {
+
+                audioFocusRequest
+                    ?.let {
+                            request ->
+
+                        audioManager
+                            .abandonAudioFocusRequest(
+                                request
+                            )
+                    }
+
+            } else {
+
+                @Suppress(
+                    "DEPRECATION"
+                )
+                audioManager
+                    .abandonAudioFocus(
+                        audioFocusChangeListener
+                    )
+            }
+
+        } catch (
+            exception: Exception
+        ) {
+
+            Log.w(
+                TAG,
+                "Failed to abandon audio focus.",
+                exception,
+            )
+
+        } finally {
+
+            hasAudioFocus =
+                false
+
+            audioFocusRequest =
+                null
         }
     }
 
@@ -458,6 +797,7 @@ class CypherRemoteSpeaker(
             if (
                 written <= 0
             ) {
+
                 break
             }
 
@@ -505,6 +845,9 @@ class CypherRemoteSpeaker(
             _: IllegalStateException
         ) {
         }
+
+
+        abandonSpeechAudioFocus()
     }
 
 
