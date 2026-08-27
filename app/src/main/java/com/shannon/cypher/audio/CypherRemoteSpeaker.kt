@@ -2,6 +2,7 @@ package com.shannon.cypher.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -14,6 +15,10 @@ import android.util.Log
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.network.SpeechStream
 import java.io.BufferedInputStream
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -27,8 +32,20 @@ class CypherRemoteSpeaker(
         private const val TAG =
             "CypherAudio"
 
+        private const val DIAGNOSTIC_TAG =
+            "CypherAudioDiag"
+
         private const val PRE_BUFFER_BYTES =
             4_096
+
+        private const val DIAGNOSTIC_LOG_NAME =
+            "cypher_audio_diagnostics.log"
+
+        private const val MAX_DIAGNOSTIC_LOG_BYTES =
+            1_000_000L
+
+        private const val PLAYBACK_TAIL_GRACE_MS =
+            750L
     }
 
 
@@ -50,6 +67,21 @@ class CypherRemoteSpeaker(
         Handler(
             Looper.getMainLooper()
         )
+
+
+    private val diagnosticLogFile =
+        File(
+            appContext.filesDir,
+            DIAGNOSTIC_LOG_NAME,
+        )
+
+
+    private val diagnosticLock =
+        Any()
+
+
+    private var currentSessionId =
+        "none"
 
 
     private val speechAudioAttributes =
@@ -91,9 +123,8 @@ class CypherRemoteSpeaker(
 
                 AudioManager.AUDIOFOCUS_LOSS -> {
 
-                    Log.d(
-                        TAG,
-                        "Audio focus lost."
+                    diagnostic(
+                        "Audio focus LOST."
                     )
 
                     stop()
@@ -102,9 +133,8 @@ class CypherRemoteSpeaker(
 
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
 
-                    Log.d(
-                        TAG,
-                        "Audio focus lost temporarily."
+                    diagnostic(
+                        "Audio focus LOST_TRANSIENT."
                     )
 
                     try {
@@ -121,9 +151,8 @@ class CypherRemoteSpeaker(
 
                 AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
 
-                    Log.d(
-                        TAG,
-                        "Audio focus loss: can duck."
+                    diagnostic(
+                        "Audio focus LOSS_TRANSIENT_CAN_DUCK."
                     )
 
                     try {
@@ -142,9 +171,8 @@ class CypherRemoteSpeaker(
 
                 AudioManager.AUDIOFOCUS_GAIN -> {
 
-                    Log.d(
-                        TAG,
-                        "Audio focus gained."
+                    diagnostic(
+                        "Audio focus GAIN."
                     )
 
                     try {
@@ -153,6 +181,7 @@ class CypherRemoteSpeaker(
                             ?.setVolume(
                                 1.0f
                             )
+
 
                         if (
                             audioTrack
@@ -189,12 +218,35 @@ class CypherRemoteSpeaker(
 
         stop()
 
+
+        currentSessionId =
+            System.currentTimeMillis()
+                .toString()
+
+
         stopRequested =
             false
 
 
         val totalStartMillis =
             SystemClock.elapsedRealtime()
+
+
+        diagnostic(
+            "=================================================="
+        )
+
+        diagnostic(
+            "NEW SPEECH SESSION"
+        )
+
+        diagnostic(
+            "Speech length: ${text.length} characters"
+        )
+
+        diagnosticAudioState(
+            "Session start"
+        )
 
 
         withContext(
@@ -214,8 +266,7 @@ class CypherRemoteSpeaker(
                     SystemClock.elapsedRealtime()
 
 
-                Log.d(
-                    TAG,
+                diagnostic(
                     "Opening /speak stream..."
                 )
 
@@ -230,8 +281,7 @@ class CypherRemoteSpeaker(
                     SystemClock.elapsedRealtime()
 
 
-                Log.d(
-                    TAG,
+                diagnostic(
                     "/speak stream opened in " +
                             "${streamOpenedAt - streamRequestStart} ms"
                 )
@@ -269,6 +319,16 @@ class CypherRemoteSpeaker(
                     )
 
 
+                diagnostic(
+                    "AudioTrack config: " +
+                            "sampleRate=$sampleRate, " +
+                            "channel=MONO, " +
+                            "format=PCM_16BIT, " +
+                            "minimumBuffer=$minimumBufferSize, " +
+                            "trackBuffer=$audioTrackBufferSize"
+                )
+
+
                 track =
                     AudioTrack
                         .Builder()
@@ -300,6 +360,17 @@ class CypherRemoteSpeaker(
 
                 audioTrack =
                     track
+
+
+                diagnostic(
+                    "AudioTrack created. " +
+                            "state=${audioTrackStateName(track.state)}"
+                )
+
+                diagnosticTrackRoute(
+                    "Track route after creation",
+                    track,
+                )
 
 
                 val firstAudioWaitStart =
@@ -348,8 +419,7 @@ class CypherRemoteSpeaker(
                     SystemClock.elapsedRealtime()
 
 
-                Log.d(
-                    TAG,
+                diagnostic(
                     "Initial PCM ready: " +
                             "$preBufferBytes bytes after " +
                             "${firstAudioReadyAt - firstAudioWaitStart} ms"
@@ -361,24 +431,39 @@ class CypherRemoteSpeaker(
                     preBufferBytes <= 0
                 ) {
 
+                    diagnostic(
+                        "Playback cancelled before audio start. " +
+                                "stopRequested=$stopRequested, " +
+                                "preBufferBytes=$preBufferBytes"
+                    )
+
                     return@withContext
                 }
+
+
+                diagnosticAudioState(
+                    "Before audio focus request"
+                )
 
 
                 val focusGranted =
                     requestSpeechAudioFocus()
 
 
-                Log.d(
-                    TAG,
+                diagnostic(
                     "Audio focus request: " +
                             if (
                                 focusGranted
                             ) {
                                 "GRANTED"
                             } else {
-                                "NOT GRANTED - attempting playback anyway"
+                                "NOT GRANTED - playback will still be attempted"
                             }
+                )
+
+
+                diagnosticAudioState(
+                    "After audio focus request"
                 )
 
 
@@ -408,7 +493,34 @@ class CypherRemoteSpeaker(
                     SystemClock.elapsedRealtime()
 
 
+                diagnosticTrackRoute(
+                    "Track route before play()",
+                    track,
+                )
+
+
                 track.play()
+
+
+                diagnostic(
+                    "AudioTrack.play() invoked."
+                )
+
+
+                Thread.sleep(
+                    100
+                )
+
+
+                diagnosticTrackRoute(
+                    "Track route 100 ms after play()",
+                    track,
+                )
+
+
+                diagnosticAudioState(
+                    "100 ms after play()"
+                )
 
 
                 withContext(
@@ -419,8 +531,7 @@ class CypherRemoteSpeaker(
                 }
 
 
-                Log.d(
-                    TAG,
+                diagnostic(
                     "AudioTrack.play() called after " +
                             "${playRequestedAt - totalStartMillis} ms"
                 )
@@ -581,17 +692,77 @@ class CypherRemoteSpeaker(
                 }
 
 
-                Log.d(
-                    TAG,
-                    "Speech playback complete. Total speaker time: " +
+                /*
+                 * AudioTrack's playback head tells us Android has
+                 * consumed the PCM frames, but the final audio can
+                 * still be travelling through the device or
+                 * Bluetooth output pipeline.
+                 *
+                 * Give that downstream buffer time to finish before
+                 * stop/release so the final words are not clipped.
+                 */
+                if (
+                    !stopRequested
+                ) {
+
+                    diagnostic(
+                        "Waiting ${PLAYBACK_TAIL_GRACE_MS} ms for output tail to drain."
+                    )
+
+                    Thread.sleep(
+                        PLAYBACK_TAIL_GRACE_MS
+                    )
+                }
+
+
+                diagnosticTrackRoute(
+                    "Track route at playback completion",
+                    track,
+                )
+
+
+                diagnostic(
+                    "Speech playback complete. " +
+                            "Total speaker time: " +
                             "${SystemClock.elapsedRealtime() - totalStartMillis} ms"
                 )
 
 
+            } catch (
+                exception: Exception
+            ) {
+
+                diagnostic(
+                    "Remote speaker exception: " +
+                            "${exception.javaClass.simpleName}: " +
+                            "${exception.message}"
+                )
+
+
+                throw exception
+
             } finally {
 
-                speechStream
-                    ?.close()
+                diagnostic(
+                    "Beginning remote speaker cleanup."
+                )
+
+
+                try {
+
+                    speechStream
+                        ?.close()
+
+                } catch (
+                    exception: Exception
+                ) {
+
+                    diagnostic(
+                        "Speech stream close failed: " +
+                                "${exception.javaClass.simpleName}: " +
+                                "${exception.message}"
+                    )
+                }
 
 
                 try {
@@ -628,12 +799,26 @@ class CypherRemoteSpeaker(
                 abandonSpeechAudioFocus()
 
 
+                diagnosticAudioState(
+                    "After playback cleanup"
+                )
+
+
                 withContext(
                     Dispatchers.Main
                 ) {
 
                     onDone()
                 }
+
+
+                diagnostic(
+                    "END SPEECH SESSION"
+                )
+
+                diagnostic(
+                    "=================================================="
+                )
             }
         }
     }
@@ -749,14 +934,19 @@ class CypherRemoteSpeaker(
                     )
             }
 
+
+            diagnostic(
+                "Audio focus abandoned."
+            )
+
         } catch (
             exception: Exception
         ) {
 
-            Log.w(
-                TAG,
-                "Failed to abandon audio focus.",
-                exception,
+            diagnostic(
+                "Failed to abandon audio focus: " +
+                        "${exception.javaClass.simpleName}: " +
+                        "${exception.message}"
             )
 
         } finally {
@@ -798,6 +988,10 @@ class CypherRemoteSpeaker(
                 written <= 0
             ) {
 
+                diagnostic(
+                    "AudioTrack.write() stopped with result=$written"
+                )
+
                 break
             }
 
@@ -812,6 +1006,17 @@ class CypherRemoteSpeaker(
 
         stopRequested =
             true
+
+
+        diagnostic(
+            "stop() requested."
+        )
+
+
+        diagnosticTrackRoute(
+            "Track route when stop() requested",
+            audioTrack,
+        )
 
 
         try {
@@ -853,6 +1058,380 @@ class CypherRemoteSpeaker(
 
     fun destroy() {
 
+        diagnostic(
+            "destroy() requested."
+        )
+
         stop()
+    }
+
+
+    private fun diagnosticAudioState(
+        label: String,
+    ) {
+
+        val mode =
+            audioModeName(
+                audioManager.mode
+            )
+
+
+        val outputs =
+            audioManager
+                .getDevices(
+                    AudioManager.GET_DEVICES_OUTPUTS
+                )
+                .joinToString(
+                    separator = " | "
+                ) {
+                        device ->
+
+                    describeDevice(
+                        device
+                    )
+                }
+                .ifBlank {
+                    "none"
+                }
+
+
+        val communicationDevice =
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.S
+            ) {
+
+                audioManager
+                    .communicationDevice
+                    ?.let {
+                        describeDevice(
+                            it
+                        )
+                    }
+                    ?: "none"
+
+            } else {
+
+                "not-supported"
+            }
+
+
+        @Suppress(
+            "DEPRECATION"
+        )
+        val bluetoothScoOn =
+            audioManager.isBluetoothScoOn
+
+
+        @Suppress(
+            "DEPRECATION"
+        )
+        val speakerphoneOn =
+            audioManager.isSpeakerphoneOn
+
+
+        diagnostic(
+            "$label :: " +
+                    "mode=$mode, " +
+                    "musicActive=${audioManager.isMusicActive}, " +
+                    "speakerphoneOn=$speakerphoneOn, " +
+                    "bluetoothScoOn=$bluetoothScoOn, " +
+                    "communicationDevice=$communicationDevice"
+        )
+
+
+        diagnostic(
+            "$label :: outputDevices=$outputs"
+        )
+    }
+
+
+    private fun diagnosticTrackRoute(
+        label: String,
+        track: AudioTrack?,
+    ) {
+
+        if (
+            track == null
+        ) {
+
+            diagnostic(
+                "$label :: track=null"
+            )
+
+            return
+        }
+
+
+        val routedDevice =
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.M
+            ) {
+
+                track.routedDevice
+                    ?.let {
+                        describeDevice(
+                            it
+                        )
+                    }
+                    ?: "none"
+
+            } else {
+
+                "not-supported"
+            }
+
+
+        diagnostic(
+            "$label :: " +
+                    "state=${audioTrackStateName(track.state)}, " +
+                    "playState=${audioTrackPlayStateName(track.playState)}, " +
+                    "routedDevice=$routedDevice"
+        )
+    }
+
+
+    private fun describeDevice(
+        device: AudioDeviceInfo,
+    ): String {
+
+        val product =
+            device.productName
+                ?.toString()
+                ?.ifBlank {
+                    "unknown"
+                }
+                ?: "unknown"
+
+
+        val address =
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.P
+            ) {
+
+                device.address
+                    .ifBlank {
+                        "none"
+                    }
+
+            } else {
+
+                "unavailable"
+            }
+
+
+        return (
+                "${audioDeviceTypeName(device.type)}" +
+                        "(id=${device.id}," +
+                        "product=$product," +
+                        "address=$address)"
+                )
+    }
+
+
+    private fun audioDeviceTypeName(
+        type: Int,
+    ): String {
+
+        return when (
+            type
+        ) {
+
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER ->
+                "BUILTIN_SPEAKER"
+
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE ->
+                "BUILTIN_EARPIECE"
+
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES ->
+                "WIRED_HEADPHONES"
+
+            AudioDeviceInfo.TYPE_WIRED_HEADSET ->
+                "WIRED_HEADSET"
+
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ->
+                "BLUETOOTH_A2DP"
+
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO ->
+                "BLUETOOTH_SCO"
+
+            AudioDeviceInfo.TYPE_USB_DEVICE ->
+                "USB_DEVICE"
+
+            AudioDeviceInfo.TYPE_USB_HEADSET ->
+                "USB_HEADSET"
+
+            AudioDeviceInfo.TYPE_HDMI ->
+                "HDMI"
+
+            AudioDeviceInfo.TYPE_DOCK ->
+                "DOCK"
+
+            AudioDeviceInfo.TYPE_REMOTE_SUBMIX ->
+                "REMOTE_SUBMIX"
+
+            else -> {
+
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.S
+                ) {
+
+                    when (
+                        type
+                    ) {
+
+                        AudioDeviceInfo.TYPE_BLE_HEADSET ->
+                            "BLE_HEADSET"
+
+                        AudioDeviceInfo.TYPE_BLE_SPEAKER ->
+                            "BLE_SPEAKER"
+
+                        AudioDeviceInfo.TYPE_BLE_BROADCAST ->
+                            "BLE_BROADCAST"
+
+                        else ->
+                            "TYPE_$type"
+                    }
+
+                } else {
+
+                    "TYPE_$type"
+                }
+            }
+        }
+    }
+
+
+    private fun audioModeName(
+        mode: Int,
+    ): String {
+
+        return when (
+            mode
+        ) {
+
+            AudioManager.MODE_NORMAL ->
+                "MODE_NORMAL"
+
+            AudioManager.MODE_RINGTONE ->
+                "MODE_RINGTONE"
+
+            AudioManager.MODE_IN_CALL ->
+                "MODE_IN_CALL"
+
+            AudioManager.MODE_IN_COMMUNICATION ->
+                "MODE_IN_COMMUNICATION"
+
+            else ->
+                "MODE_$mode"
+        }
+    }
+
+
+    private fun audioTrackStateName(
+        state: Int,
+    ): String {
+
+        return when (
+            state
+        ) {
+
+            AudioTrack.STATE_INITIALIZED ->
+                "INITIALIZED"
+
+            AudioTrack.STATE_UNINITIALIZED ->
+                "UNINITIALIZED"
+
+            AudioTrack.STATE_NO_STATIC_DATA ->
+                "NO_STATIC_DATA"
+
+            else ->
+                "STATE_$state"
+        }
+    }
+
+
+    private fun audioTrackPlayStateName(
+        state: Int,
+    ): String {
+
+        return when (
+            state
+        ) {
+
+            AudioTrack.PLAYSTATE_STOPPED ->
+                "STOPPED"
+
+            AudioTrack.PLAYSTATE_PAUSED ->
+                "PAUSED"
+
+            AudioTrack.PLAYSTATE_PLAYING ->
+                "PLAYING"
+
+            else ->
+                "PLAYSTATE_$state"
+        }
+    }
+
+
+    private fun diagnostic(
+        message: String,
+    ) {
+
+        Log.d(
+            DIAGNOSTIC_TAG,
+            "[$currentSessionId] $message"
+        )
+
+
+        val timestamp =
+            SimpleDateFormat(
+                "yyyy-MM-dd HH:mm:ss.SSS",
+                Locale.US,
+            ).format(
+                Date()
+            )
+
+
+        val line =
+            "$timestamp [$currentSessionId] $message\n"
+
+
+        try {
+
+            synchronized(
+                diagnosticLock
+            ) {
+
+                if (
+                    diagnosticLogFile.exists() &&
+                    diagnosticLogFile.length() >
+                    MAX_DIAGNOSTIC_LOG_BYTES
+                ) {
+
+                    diagnosticLogFile.writeText(
+                        "Cypher audio diagnostics log rotated.\n"
+                    )
+                }
+
+
+                diagnosticLogFile.appendText(
+                    line
+                )
+            }
+
+        } catch (
+            exception: Exception
+        ) {
+
+            Log.w(
+                TAG,
+                "Unable to write persistent audio diagnostic log.",
+                exception,
+            )
+        }
     }
 }

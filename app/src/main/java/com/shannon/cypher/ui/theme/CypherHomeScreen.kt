@@ -78,6 +78,8 @@ import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
 import com.shannon.cypher.ui.theme.CypherTheme
+import com.shannon.cypher.weather.CypherWeatherParser
+import com.shannon.cypher.weather.CypherWeatherService
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -198,6 +200,32 @@ fun CypherHomeScreen(
     }
 
     val apiClient = remember { CypherApiClient() }
+
+
+    val weatherService =
+        remember {
+
+            if (
+                isPreview
+            ) {
+
+                null
+
+            } else {
+
+                CypherWeatherService(
+                    context
+                )
+            }
+        }
+
+
+    var pendingWeatherRequest by
+    remember {
+        mutableStateOf<String?>(
+            null
+        )
+    }
 
 
     /*
@@ -3747,6 +3775,192 @@ fun CypherHomeScreen(
     }
 
 
+    fun hasWeatherLocationPermission(): Boolean {
+
+        val fineGranted =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
+
+
+        val coarseGranted =
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) ==
+                    PackageManager.PERMISSION_GRANTED
+
+
+        return (
+                fineGranted ||
+                        coarseGranted
+                )
+    }
+
+
+    fun runWeatherRequest(
+        message: String,
+    ) {
+
+        val service =
+            weatherService
+
+
+        if (
+            service == null
+        ) {
+
+            reply(
+                "Weather is unavailable."
+            )
+
+            return
+        }
+
+
+        isThinking =
+            true
+
+        isSpeaking =
+            false
+
+        cypherReply =
+            ""
+
+
+        coroutineScope.launch {
+
+            val answer =
+                service.handle(
+                    message
+                )
+
+
+            isThinking =
+                false
+
+
+            if (
+                answer != null
+            ) {
+
+                reply(
+                    answer
+                )
+
+            } else {
+
+                reply(
+                    "I couldn't process that weather request."
+                )
+            }
+        }
+    }
+
+
+    val weatherLocationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            contract =
+                ActivityResultContracts
+                    .RequestMultiplePermissions()
+        ) { permissions ->
+
+            val granted =
+                permissions[
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ] == true ||
+                        permissions[
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                        ] == true ||
+                        hasWeatherLocationPermission()
+
+
+            val pending =
+                pendingWeatherRequest
+
+
+            pendingWeatherRequest =
+                null
+
+
+            if (
+                granted &&
+                pending != null
+            ) {
+
+                runWeatherRequest(
+                    pending
+                )
+
+            } else if (
+                pending != null
+            ) {
+
+                reply(
+                    "Location permission was not granted. " +
+                            "I can still check the weather if you tell me a location."
+                )
+            }
+        }
+
+
+    fun handleWeatherRequest(
+        message: String,
+    ) {
+
+        val request =
+            CypherWeatherParser.parse(
+                message
+            )
+
+
+        if (
+            request == null
+        ) {
+
+            return
+        }
+
+
+        if (
+            request.namedLocation != null
+        ) {
+
+            runWeatherRequest(
+                message
+            )
+
+            return
+        }
+
+
+        if (
+            hasWeatherLocationPermission()
+        ) {
+
+            runWeatherRequest(
+                message
+            )
+
+        } else {
+
+            pendingWeatherRequest =
+                message
+
+
+            weatherLocationPermissionLauncher
+                .launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )
+                )
+        }
+    }
+
+
     fun startListening() {
         recognizedText = ""
         cypherReply = ""
@@ -3911,6 +4125,17 @@ fun CypherHomeScreen(
                     isCalendarReadRequest(normalizedText) -> {
                         requestCalendarRead(normalizedText)
                     }
+
+
+                    CypherWeatherParser.parse(
+                        normalizedText
+                    ) != null -> {
+
+                        handleWeatherRequest(
+                            normalizedText
+                        )
+                    }
+
 
                     else -> {
                         sendMessageToCypherOS(normalizedText)
