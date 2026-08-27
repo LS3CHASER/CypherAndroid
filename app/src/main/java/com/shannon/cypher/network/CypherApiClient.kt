@@ -20,7 +20,6 @@ class CypherApiClient {
     }
 
 
-
     fun warmUp() {
 
         val totalStart =
@@ -28,7 +27,7 @@ class CypherApiClient {
 
 
         val url =
-            URL(BASE_URL)
+            URL("$BASE_URL/health")
 
 
         val connection =
@@ -57,11 +56,6 @@ class CypherApiClient {
             )
 
 
-            /*
-             * Any HTTP response is enough for our purpose here.
-             * Even if the root route returns 404, Render has still
-             * had to wake the service and answer the request.
-             */
             val responseCode =
                 connection.responseCode
 
@@ -266,10 +260,10 @@ class CypherApiClient {
             "POST"
 
         connection.connectTimeout =
-            10_000
+            8_000
 
         connection.readTimeout =
-            60_000
+            10_000
 
         connection.doOutput =
             true
