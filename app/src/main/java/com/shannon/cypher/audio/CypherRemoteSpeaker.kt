@@ -88,7 +88,7 @@ class CypherRemoteSpeaker(
         AudioAttributes
             .Builder()
             .setUsage(
-                AudioAttributes.USAGE_ASSISTANT
+                AudioAttributes.USAGE_MEDIA
             )
             .setContentType(
                 AudioAttributes.CONTENT_TYPE_SPEECH

@@ -249,6 +249,42 @@ fun CypherMenuOverlay(
 
             Spacer(
                 modifier =
+                    Modifier.size(
+                        12.dp
+                    )
+            )
+
+
+            MenuItem(
+                title =
+                    "VOICE LAB",
+
+                selected =
+                    currentScreen ==
+                            CypherScreen.VOICE_LAB,
+
+                accent =
+                    accent,
+
+                selectedAccent =
+                    secondaryAccent,
+
+                secondaryText =
+                    secondaryText,
+
+                onClick = {
+
+                    onScreenSelected(
+                        CypherScreen.VOICE_LAB
+                    )
+
+                    onDismiss()
+                },
+            )
+
+
+            Spacer(
+                modifier =
                     Modifier.weight(
                         1f
                     )
