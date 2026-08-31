@@ -3676,6 +3676,36 @@ fun CypherHomeScreen(
     }
 
 
+    fun joinTaskTitlesForSpeech(
+        titles: List<String>,
+    ): String {
+
+        return when (
+            titles.size
+        ) {
+
+            0 ->
+                ""
+
+            1 ->
+                titles.first()
+
+            2 ->
+                "${titles[0]} and ${titles[1]}"
+
+            else ->
+                titles
+                    .dropLast(
+                        1
+                    )
+                    .joinToString(
+                        ", "
+                    ) +
+                        ", and ${titles.last()}"
+        }
+    }
+
+
     fun handleTaskDateList(
         message: String,
     ) {
@@ -3738,13 +3768,13 @@ fun CypherHomeScreen(
                     ) {
 
                         "today" ->
-                            "You don't have any open tasks due today."
+                            "You don't have anything on your to-do list for today."
 
                         "tomorrow" ->
-                            "You don't have any open tasks due tomorrow."
+                            "You don't have anything on your to-do list for tomorrow."
 
                         else ->
-                            "You don't have any open tasks due $spokenTarget."
+                            "You don't have anything on your to-do list for $spokenTarget."
                     }
                 )
 
@@ -3752,34 +3782,48 @@ fun CypherHomeScreen(
             }
 
 
-            val description =
+            val spokenTasks =
                 tasks
                     .take(
                         10
                     )
-                    .mapIndexed {
-                            index,
+                    .map {
                             task ->
 
-                        val dueText =
-                            task.dueAtMillis
-                                ?.let {
-                                        due ->
-
-                                    ", due ${
-                                        CypherTaskDateParser.formatForSpeech(
-                                            due
-                                        )
-                                    }"
-                                }
-                                ?: ""
-
-
-                        "${index + 1}. ${task.title}$dueText"
+                        task.title
+                            .trim()
                     }
-                    .joinToString(
-                        ". "
-                    )
+
+
+            val description =
+                joinTaskTitlesForSpeech(
+                    spokenTasks
+                )
+
+
+            val opening =
+                when {
+
+                    tasks.size == 1 &&
+                            spokenTarget == "today" ->
+                        "You've got one thing to do today: "
+
+                    tasks.size == 1 &&
+                            spokenTarget == "tomorrow" ->
+                        "You've got one thing to do tomorrow: "
+
+                    tasks.size == 1 ->
+                        "You've got one thing to do $spokenTarget: "
+
+                    spokenTarget == "today" ->
+                        "You've got ${tasks.size} things to do today: "
+
+                    spokenTarget == "tomorrow" ->
+                        "You've got ${tasks.size} things to do tomorrow: "
+
+                    else ->
+                        "You've got ${tasks.size} things to do $spokenTarget: "
+                }
 
 
             val extra =
@@ -3787,7 +3831,7 @@ fun CypherHomeScreen(
                     tasks.size > 10
                 ) {
 
-                    " You also have ${tasks.size - 10} more tasks due $spokenTarget."
+                    " You also have ${tasks.size - 10} more."
 
                 } else {
 
@@ -3796,15 +3840,7 @@ fun CypherHomeScreen(
 
 
             reply(
-                "You have ${tasks.size} open ${
-                    if (
-                        tasks.size == 1
-                    ) {
-                        "task"
-                    } else {
-                        "tasks"
-                    }
-                } due $spokenTarget. $description.$extra"
+                "$opening$description.$extra"
             )
         }
     }
@@ -3828,41 +3864,63 @@ fun CypherHomeScreen(
             ) {
 
                 reply(
-                    "Your to-do list is empty."
+                    "Your to-do list is clear."
                 )
 
                 return@launch
             }
 
 
-            val description =
+            val spokenTasks =
                 tasks
                     .take(
                         10
                     )
-                    .mapIndexed {
-                            index,
+                    .map {
                             task ->
 
-                        val dueText =
+                        val title =
+                            task.title
+                                .trim()
+
+                        val due =
                             task.dueAtMillis
-                                ?.let {
-                                        due ->
-
-                                    ", due ${
-                                        CypherTaskDateParser.formatForSpeech(
-                                            due
-                                        )
-                                    }"
-                                }
-                                ?: ""
 
 
-                        "${index + 1}. ${task.title}$dueText"
+                        if (
+                            due == null
+                        ) {
+
+                            title
+
+                        } else {
+
+                            "$title, due ${
+                                CypherTaskDateParser.formatForSpeech(
+                                    due
+                                )
+                            }"
+                        }
                     }
-                    .joinToString(
-                        ". "
-                    )
+
+
+            val description =
+                joinTaskTitlesForSpeech(
+                    spokenTasks
+                )
+
+
+            val opening =
+                if (
+                    tasks.size == 1
+                ) {
+
+                    "You've got one thing on your to-do list: "
+
+                } else {
+
+                    "You've got ${tasks.size} things on your to-do list: "
+                }
 
 
             val extra =
@@ -3870,7 +3928,7 @@ fun CypherHomeScreen(
                     tasks.size > 10
                 ) {
 
-                    " You also have ${tasks.size - 10} more tasks."
+                    " You also have ${tasks.size - 10} more."
 
                 } else {
 
@@ -3879,11 +3937,11 @@ fun CypherHomeScreen(
 
 
             reply(
-                "You have ${tasks.size} open ${if (tasks.size == 1) "task" else "tasks"}. " +
-                        "$description.$extra"
+                "$opening$description.$extra"
             )
         }
     }
+
 
 
     fun handleTaskComplete(

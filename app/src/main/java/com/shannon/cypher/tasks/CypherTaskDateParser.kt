@@ -386,8 +386,34 @@ object CypherTaskDateParser {
         millis: Long,
     ): String {
 
+        val calendar =
+            Calendar.getInstance().apply {
+                timeInMillis =
+                    millis
+            }
+
+
+        val minute =
+            calendar.get(
+                Calendar.MINUTE
+            )
+
+
+        val pattern =
+            if (
+                minute == 0
+            ) {
+
+                "EEEE d MMMM 'at' h a"
+
+            } else {
+
+                "EEEE d MMMM 'at' h:mm a"
+            }
+
+
         return SimpleDateFormat(
-            "EEEE d MMMM 'at' h:mm a",
+            pattern,
             Locale.getDefault(),
         ).format(
             millis
