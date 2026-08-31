@@ -78,6 +78,7 @@ import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
 import com.shannon.cypher.ui.theme.CypherTheme
+import com.shannon.cypher.voicelab.CypherVoiceLabScreen
 import com.shannon.cypher.weather.CypherWeatherParser
 import com.shannon.cypher.weather.CypherWeatherService
 import java.text.SimpleDateFormat
@@ -512,10 +513,37 @@ fun CypherHomeScreen(
 
 
     fun formatTime(timeMillis: Long): String {
+
+        val calendar =
+            Calendar.getInstance().apply {
+                this.timeInMillis =
+                    timeMillis
+            }
+
+        val minute =
+            calendar.get(
+                Calendar.MINUTE
+            )
+
+        val pattern =
+            if (
+                minute == 0
+            ) {
+
+                "h a"
+
+            } else {
+
+                "h:mm a"
+            }
+
+
         return SimpleDateFormat(
-            "h:mm a",
+            pattern,
             Locale.getDefault(),
-        ).format(timeMillis)
+        ).format(
+            timeMillis
+        )
     }
 
 
@@ -797,12 +825,28 @@ fun CypherHomeScreen(
                 lowerMessage.contains(phrase)
             }
 
+        val hasNaturalScheduleWording =
+            listOf(
+                "what have i got on",
+                "what do i have on",
+                "what am i doing",
+                "what's on my schedule",
+                "whats on my schedule",
+                "what is on my schedule",
+            ).any {
+                    phrase ->
+
+                phrase in lowerMessage
+            }
+
+
         return (
                 hasCalendarDateWords(message) &&
                         hasReadIntent &&
                         (
                                 hasCalendarWord ||
-                                        specificDate != null
+                                        specificDate != null ||
+                                        hasNaturalScheduleWording
                                 )
                 )
     }
@@ -1395,29 +1439,236 @@ fun CypherHomeScreen(
     }
 
 
+    fun isSameCalendarDay(
+        first: Calendar,
+        second: Calendar,
+    ): Boolean {
+
+        return (
+                first.get(
+                    Calendar.ERA
+                ) ==
+                        second.get(
+                            Calendar.ERA
+                        ) &&
+                        first.get(
+                            Calendar.YEAR
+                        ) ==
+                        second.get(
+                            Calendar.YEAR
+                        ) &&
+                        first.get(
+                            Calendar.DAY_OF_YEAR
+                        ) ==
+                        second.get(
+                            Calendar.DAY_OF_YEAR
+                        )
+                )
+    }
+
+
+    fun formatCalendarEventForSpeech(
+        event: CypherCalendarEvent,
+        dayReference: String,
+    ): String {
+
+        val cleanTitle =
+            event.title
+                .trim()
+
+
+        /*
+         * Personal calendar wording:
+         *
+         * "Mel works" is a shift, so use both the
+         * start and end times instead of reading it
+         * like a generic appointment.
+         */
+        if (
+            cleanTitle.equals(
+                "Mel works",
+                ignoreCase = true,
+            )
+        ) {
+
+            if (
+                event.allDay
+            ) {
+
+                return "Mel is working $dayReference"
+            }
+
+
+            return (
+                    "Mel's working from " +
+                            "${formatTime(event.startTimeMillis)} until " +
+                            "${formatTime(event.endTimeMillis)} $dayReference"
+                    )
+        }
+
+
+        if (
+            event.allDay
+        ) {
+
+            return "$cleanTitle is on $dayReference"
+        }
+
+
+        return (
+                "$cleanTitle at " +
+                        "${formatTime(event.startTimeMillis)} $dayReference"
+                )
+    }
+
+
+
+
     fun formatCalendarEvents(
         events: List<CypherCalendarEvent>,
         message: String,
     ): String {
-        val date = getCalendarDate(message)
-        val dateDescription = formatDate(date)
 
-        if (events.isEmpty()) {
-            return "You have nothing on your calendar for $dateDescription."
-        }
+        val date =
+            getCalendarDate(
+                message
+            )
 
-        val eventDescriptions = events.map { event ->
-            if (event.allDay) {
-                event.title
-            } else {
-                "${event.title} at ${formatTime(event.startTimeMillis)}"
+        val dateDescription =
+            formatDate(
+                date
+            )
+
+        val today =
+            Calendar.getInstance()
+
+        val tomorrow =
+            Calendar.getInstance().apply {
+                add(
+                    Calendar.DAY_OF_YEAR,
+                    1,
+                )
+            }
+
+        val dayReference =
+            when {
+
+                isSameCalendarDay(
+                    date,
+                    today,
+                ) -> "today"
+
+                isSameCalendarDay(
+                    date,
+                    tomorrow,
+                ) -> "tomorrow"
+
+                else ->
+                    dateDescription
+            }
+
+
+        if (
+            events.isEmpty()
+        ) {
+
+            return when (
+                dayReference
+            ) {
+
+                "today" ->
+                    "Your calendar is clear today."
+
+                "tomorrow" ->
+                    "Your calendar is clear tomorrow."
+
+                else ->
+                    "You have nothing on your calendar for $dayReference."
             }
         }
 
-        val count = if (events.size == 1) "one event" else "${events.size} events"
 
-        return "You have $count on $dateDescription. " +
-                eventDescriptions.joinToString(", ") + "."
+        val eventDescriptions =
+            events.map {
+                    event ->
+
+                formatCalendarEventForSpeech(
+                    event = event,
+                    dayReference = dayReference,
+                )
+            }
+
+
+        if (
+            events.size == 1
+        ) {
+
+            return eventDescriptions
+                .first()
+                .replaceFirstChar {
+                        character ->
+
+                    if (
+                        character.isLowerCase()
+                    ) {
+
+                        character.titlecase(
+                            Locale.getDefault()
+                        )
+
+                    } else {
+
+                        character.toString()
+                    }
+                } + "."
+        }
+
+
+        val joinedEvents =
+            when (
+                eventDescriptions.size
+            ) {
+
+                2 ->
+                    eventDescriptions.joinToString(
+                        " and "
+                    )
+
+                else -> {
+
+                    val firstEvents =
+                        eventDescriptions
+                            .dropLast(
+                                1
+                            )
+                            .joinToString(
+                                ", "
+                            )
+
+                    "$firstEvents, and ${eventDescriptions.last()}"
+                }
+            }
+
+
+        return (
+                "You've got ${events.size} things on $dayReference. " +
+                        joinedEvents
+                ).replaceFirstChar {
+                    character ->
+
+                if (
+                    character.isLowerCase()
+                ) {
+
+                    character.titlecase(
+                        Locale.getDefault()
+                    )
+
+                } else {
+
+                    character.toString()
+                }
+            } + "."
     }
 
 
@@ -2679,31 +2930,58 @@ fun CypherHomeScreen(
                 message
             )
 
-        return listOf(
-            "what's on my to-do list",
-            "whats on my to-do list",
-            "what is on my to-do list",
-            "what's on my to do list",
-            "whats on my to do list",
-            "what is on my to do list",
-            "what's on my todo list",
-            "whats on my todo list",
-            "what is on my todo list",
-            "what tasks do i have",
-            "what tasks have i got",
-            "what are my tasks",
-            "show my tasks",
-            "show me my tasks",
-            "show my to-do list",
-            "show my to do list",
-            "show my todo list",
-            "read my tasks",
-            "read my to-do list",
-            "read my to do list",
-            "read my todo list",
-        ).any {
-            it in lower
+
+        /*
+         * Treat this as an intent instead of matching only exact
+         * sentences. Android speech recognition can return small
+         * variations such as:
+         *
+         * "what on my to do list today"
+         * "what's on my to-do list today"
+         * "what tasks have I got today"
+         * "tell me my tasks for today"
+         */
+        val hasTaskReference =
+            hasTaskTarget(
+                lower
+            ) ||
+                    Regex(
+                        "\\b(?:my\\s+)?tasks?\\b",
+                        RegexOption.IGNORE_CASE,
+                    ).containsMatchIn(
+                        lower
+                    )
+
+
+        if (
+            !hasTaskReference
+        ) {
+
+            return false
         }
+
+
+        val hasReadIntent =
+            listOf(
+                "what",
+                "what's",
+                "whats",
+                "what is",
+                "what do i have",
+                "what have i got",
+                "what are",
+                "show",
+                "read",
+                "tell me",
+                "anything",
+            ).any {
+                    phrase ->
+
+                phrase in lower
+            }
+
+
+        return hasReadIntent
     }
 
 
@@ -4036,6 +4314,15 @@ fun CypherHomeScreen(
                         requestCalendarCreate(normalizedText)
                     }
 
+                    isTaskDateListRequest(
+                        normalizedText
+                    ) -> {
+                        handleTaskDateList(
+                            normalizedText
+                        )
+                    }
+
+
                     isTaskScreenRequest(
                         normalizedText
                     ) -> {
@@ -4048,15 +4335,6 @@ fun CypherHomeScreen(
 
                         reply(
                             "Opening your to-do list."
-                        )
-                    }
-
-
-                    isTaskDateListRequest(
-                        normalizedText
-                    ) -> {
-                        handleTaskDateList(
-                            normalizedText
                         )
                     }
 
@@ -5255,6 +5533,12 @@ fun CypherHomeScreen(
                         }
                     }
                 }
+            }
+
+
+            CypherScreen.VOICE_LAB -> {
+
+                CypherVoiceLabScreen()
             }
         }
 
