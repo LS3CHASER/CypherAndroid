@@ -142,6 +142,96 @@ class CypherCalendarManager(
     }
 
 
+    /*
+     * Read the first alert reminder attached to an existing
+     * Android / Google Calendar event.
+     *
+     * Returns the number of minutes before the event, or null
+     * when the event has no alert reminder that Cypher should
+     * mirror into its own notification system.
+     */
+    fun getReminderMinutes(
+        eventId: Long,
+    ): Int? {
+
+        if (
+            !hasReadPermission() ||
+            eventId <= 0L
+        ) {
+
+            return null
+        }
+
+
+        val projection =
+            arrayOf(
+                CalendarContract.Reminders.MINUTES,
+                CalendarContract.Reminders.METHOD,
+            )
+
+
+        appContext
+            .contentResolver
+            .query(
+                CalendarContract.Reminders.CONTENT_URI,
+                projection,
+                "${CalendarContract.Reminders.EVENT_ID} = ?",
+                arrayOf(
+                    eventId.toString()
+                ),
+                "${CalendarContract.Reminders.MINUTES} ASC",
+            )
+            ?.use {
+                    cursor ->
+
+                val minutesIndex =
+                    cursor.getColumnIndexOrThrow(
+                        CalendarContract.Reminders.MINUTES
+                    )
+
+
+                val methodIndex =
+                    cursor.getColumnIndexOrThrow(
+                        CalendarContract.Reminders.METHOD
+                    )
+
+
+                while (
+                    cursor.moveToNext()
+                ) {
+
+                    val method =
+                        cursor.getInt(
+                            methodIndex
+                        )
+
+
+                    if (
+                        method ==
+                        CalendarContract.Reminders.METHOD_ALERT
+                    ) {
+
+                        val minutes =
+                            cursor.getInt(
+                                minutesIndex
+                            )
+
+
+                        if (
+                            minutes >= 0
+                        ) {
+
+                            return minutes
+                        }
+                    }
+                }
+            }
+
+
+        return null
+    }
+
+
     fun createEvent(
         title: String,
         startTimeMillis: Long,

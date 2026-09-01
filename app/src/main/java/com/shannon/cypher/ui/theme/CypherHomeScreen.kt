@@ -74,6 +74,7 @@ import com.shannon.cypher.identity.CypherNameNormalizer
 import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.notifications.CypherNotificationManager
 import com.shannon.cypher.notifications.CypherCalendarReminderScheduler
+import com.shannon.cypher.notifications.CypherCalendarReminderSync
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
@@ -248,6 +249,33 @@ fun CypherHomeScreen(
             ) {
 
                 apiClient.warmUp()
+            }
+        }
+    }
+
+
+    /*
+     * Mirror reminders from existing Android / Google Calendar events
+     * into Cypher's own notification alarm system whenever the app starts.
+     *
+     * This runs off the main thread and quietly returns if Calendar read
+     * permission has not been granted yet.
+     */
+    LaunchedEffect(
+        Unit
+    ) {
+
+        if (
+            !isPreview
+        ) {
+
+            withContext(
+                Dispatchers.IO
+            ) {
+
+                CypherCalendarReminderSync(
+                    context.applicationContext
+                ).syncUpcomingCalendarReminders()
             }
         }
     }
