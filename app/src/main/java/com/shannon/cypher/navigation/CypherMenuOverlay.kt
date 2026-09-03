@@ -31,11 +31,6 @@ fun CypherMenuOverlay(
     onDismiss: () -> Unit,
 ) {
 
-    val background =
-        Color(
-            0xFF070509
-        )
-
     val panel =
         Color(
             0xFF110D16
@@ -204,6 +199,42 @@ fun CypherMenuOverlay(
 
                     onScreenSelected(
                         CypherScreen.HOME
+                    )
+
+                    onDismiss()
+                },
+            )
+
+
+            Spacer(
+                modifier =
+                    Modifier.size(
+                        12.dp
+                    )
+            )
+
+
+            MenuItem(
+                title =
+                    "CALENDAR",
+
+                selected =
+                    currentScreen ==
+                            CypherScreen.CALENDAR,
+
+                accent =
+                    accent,
+
+                selectedAccent =
+                    secondaryAccent,
+
+                secondaryText =
+                    secondaryText,
+
+                onClick = {
+
+                    onScreenSelected(
+                        CypherScreen.CALENDAR
                     )
 
                     onDismiss()

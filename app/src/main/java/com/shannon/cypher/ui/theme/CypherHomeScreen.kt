@@ -77,6 +77,7 @@ import com.shannon.cypher.notifications.CypherCalendarReminderScheduler
 import com.shannon.cypher.notifications.CypherCalendarReminderSync
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
+import com.shannon.cypher.ui.calendar.CypherCalendarScreen
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
 import com.shannon.cypher.ui.theme.CypherTheme
 import com.shannon.cypher.voicelab.CypherVoiceLabScreen
@@ -5555,6 +5556,72 @@ fun CypherHomeScreen(
                         fontWeight =
                             FontWeight.Light,
                     )
+                }
+            }
+
+
+            CypherScreen.CALENDAR -> {
+
+                val manager =
+                    calendarManager
+
+
+                if (
+                    manager != null
+                ) {
+
+                    CypherCalendarScreen(
+                        calendarManager =
+                            manager,
+
+                        isListening =
+                            isListening,
+
+                        isThinking =
+                            isThinking,
+
+                        isSpeaking =
+                            isSpeaking,
+
+                        onMenuClick = {
+
+                            isMenuOpen =
+                                true
+                        },
+
+                        onMicClick = {
+
+                            handleMicClick()
+                        },
+                    )
+
+                } else {
+
+                    Surface(
+                        modifier =
+                            Modifier.fillMaxSize(),
+
+                        color =
+                            background,
+                    ) {
+
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+
+                            Text(
+                                text =
+                                    "Calendar is unavailable in preview mode.",
+
+                                color =
+                                    secondaryText,
+                            )
+                        }
+                    }
                 }
             }
 
