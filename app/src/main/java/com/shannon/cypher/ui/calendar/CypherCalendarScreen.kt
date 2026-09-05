@@ -26,11 +26,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,6 +67,15 @@ import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+
+private data class CalendarEditorLoadedDetails(
+    val reminderMinutes: Int?,
+    val recurring: Boolean,
+    val recurrenceRule: String?,
+    val location: String,
+    val description: String,
+)
 
 
 private enum class RecurringEditScope {
@@ -282,6 +294,30 @@ fun CypherCalendarScreen(
     remember {
         mutableStateOf(
             ""
+        )
+    }
+
+
+    var editorLocation by
+    remember {
+        mutableStateOf(
+            ""
+        )
+    }
+
+
+    var editorDescription by
+    remember {
+        mutableStateOf(
+            ""
+        )
+    }
+
+
+    var editorAllDay by
+    remember {
+        mutableStateOf(
+            false
         )
     }
 
@@ -652,6 +688,15 @@ fun CypherCalendarScreen(
         editorTitle =
             ""
 
+        editorLocation =
+            ""
+
+        editorDescription =
+            ""
+
+        editorAllDay =
+            false
+
         editorStartMillis =
             start.timeInMillis
 
@@ -697,21 +742,36 @@ fun CypherCalendarScreen(
                     Dispatchers.IO
                 ) {
 
-                    Triple(
+                    val eventDetails =
                         calendarManager
-                            .getReminderMinutes(
+                            .getEventDetails(
                                 event.id
-                            ),
+                            )
 
-                        calendarManager
-                            .isRecurringEvent(
-                                event.id
-                            ),
+                    CalendarEditorLoadedDetails(
+                        reminderMinutes =
+                            calendarManager
+                                .getReminderMinutes(
+                                    event.id
+                                ),
 
-                        calendarManager
-                            .getRecurrenceRule(
-                                event.id
-                            ),
+                        recurring =
+                            calendarManager
+                                .isRecurringEvent(
+                                    event.id
+                                ),
+
+                        recurrenceRule =
+                            calendarManager
+                                .getRecurrenceRule(
+                                    event.id
+                                ),
+
+                        location =
+                            eventDetails.location,
+
+                        description =
+                            eventDetails.description,
                     )
                 }
 
@@ -720,13 +780,22 @@ fun CypherCalendarScreen(
                 event
 
             editingRecurringEvent =
-                details.second
+                details.recurring
 
             recurringEditScope =
                 null
 
             editorTitle =
                 event.title
+
+            editorLocation =
+                details.location
+
+            editorDescription =
+                details.description
+
+            editorAllDay =
+                event.allDay
 
             editorStartMillis =
                 event.startTimeMillis
@@ -735,7 +804,7 @@ fun CypherCalendarScreen(
                 event.endTimeMillis
 
             editorReminderMinutes =
-                details.first
+                details.reminderMinutes
 
             editorRepeatUntilMillis =
                 defaultRepeatUntilMillis(
@@ -743,7 +812,7 @@ fun CypherCalendarScreen(
                 )
 
             applyRecurrenceRuleToEditor(
-                details.third
+                details.recurrenceRule
             )
 
             editorError =
@@ -999,6 +1068,7 @@ fun CypherCalendarScreen(
 
 
         if (
+            !editorAllDay &&
             editorEndMillis <=
             editorStartMillis
         ) {
@@ -1020,6 +1090,55 @@ fun CypherCalendarScreen(
 
             return
         }
+
+
+        val eventStartMillis =
+            if (editorAllDay) {
+
+                val localDate =
+                    Calendar.getInstance()
+                        .apply {
+                            timeInMillis =
+                                editorStartMillis
+                        }
+
+                Calendar.getInstance(
+                    java.util.TimeZone.getTimeZone(
+                        "UTC"
+                    )
+                )
+                    .apply {
+                        clear()
+                        set(
+                            localDate.get(Calendar.YEAR),
+                            localDate.get(Calendar.MONTH),
+                            localDate.get(Calendar.DAY_OF_MONTH),
+                            0,
+                            0,
+                            0,
+                        )
+                    }
+                    .timeInMillis
+
+            } else {
+
+                editorStartMillis
+            }
+
+
+        val eventEndMillis =
+            if (editorAllDay) {
+
+                eventStartMillis +
+                        24L *
+                        60L *
+                        60L *
+                        1000L
+
+            } else {
+
+                editorEndMillis
+            }
 
 
         val recurrenceRule =
@@ -1090,16 +1209,25 @@ fun CypherCalendarScreen(
                                     cleanTitle,
 
                                 startTimeMillis =
-                                    editorStartMillis,
+                                    eventStartMillis,
 
                                 endTimeMillis =
-                                    editorEndMillis,
+                                    eventEndMillis,
 
                                 reminderMinutes =
                                     editorReminderMinutes,
 
                                 recurrenceRule =
                                     recurrenceRule,
+
+                                location =
+                                    editorLocation,
+
+                                description =
+                                    editorDescription,
+
+                                allDay =
+                                    editorAllDay,
                             ) !=
                                 null
 
@@ -1137,6 +1265,12 @@ fun CypherCalendarScreen(
 
                                             reminderMinutes =
                                                 editorReminderMinutes,
+
+                                            location =
+                                                editorLocation,
+
+                                            description =
+                                                editorDescription,
                                         ) != null
                                 }
 
@@ -1156,13 +1290,22 @@ fun CypherCalendarScreen(
                                                     cleanTitle,
 
                                                 newOccurrenceStartMillis =
-                                                    editorStartMillis,
+                                                    eventStartMillis,
 
                                                 newOccurrenceEndMillis =
-                                                    editorEndMillis,
+                                                    eventEndMillis,
 
                                                 recurrenceRule =
                                                     recurrenceRule,
+
+                                                location =
+                                                    editorLocation,
+
+                                                description =
+                                                    editorDescription,
+
+                                                allDay =
+                                                    editorAllDay,
                                             )
 
 
@@ -1207,13 +1350,22 @@ fun CypherCalendarScreen(
                                             cleanTitle,
 
                                         startTimeMillis =
-                                            editorStartMillis,
+                                            eventStartMillis,
 
                                         endTimeMillis =
-                                            editorEndMillis,
+                                            eventEndMillis,
 
                                         recurrenceRule =
                                             recurrenceRule,
+
+                                        location =
+                                            editorLocation,
+
+                                        description =
+                                            editorDescription,
+
+                                        allDay =
+                                            editorAllDay,
                                     )
 
 
@@ -2249,7 +2401,14 @@ fun CypherCalendarScreen(
 
             text = {
 
-                Column {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(
+                                rememberScrollState()
+                            )
+                ) {
 
                     if (
                         editingRecurringEvent
@@ -2404,6 +2563,168 @@ fun CypherCalendarScreen(
                     )
 
 
+                    OutlinedTextField(
+                        value =
+                            editorLocation,
+
+                        onValueChange = {
+                            editorLocation =
+                                it
+                        },
+
+                        modifier =
+                            Modifier.fillMaxWidth(),
+
+                        label = {
+                            Text(
+                                "Location"
+                            )
+                        },
+
+                        singleLine =
+                            true,
+
+                        enabled =
+                            !editorBusy &&
+                                    (
+                                            !editingRecurringEvent ||
+                                                    recurringEditScope != null
+                                            ),
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                10.dp
+                            )
+                    )
+
+
+                    OutlinedTextField(
+                        value =
+                            editorDescription,
+
+                        onValueChange = {
+                            editorDescription =
+                                it
+                        },
+
+                        modifier =
+                            Modifier.fillMaxWidth(),
+
+                        label = {
+                            Text(
+                                "Notes"
+                            )
+                        },
+
+                        minLines =
+                            2,
+
+                        maxLines =
+                            4,
+
+                        enabled =
+                            !editorBusy &&
+                                    (
+                                            !editingRecurringEvent ||
+                                                    recurringEditScope != null
+                                            ),
+                    )
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                14.dp
+                            )
+                    )
+
+
+                    Row(
+                        modifier =
+                            Modifier.fillMaxWidth(),
+
+                        horizontalArrangement =
+                            Arrangement.SpaceBetween,
+
+                        verticalAlignment =
+                            Alignment.CenterVertically,
+                    ) {
+
+                        Column(
+                            modifier =
+                                Modifier.weight(
+                                    1f
+                                )
+                        ) {
+
+                            Text(
+                                text =
+                                    "ALL DAY",
+
+                                color =
+                                    secondaryText,
+
+                                fontSize =
+                                    10.sp,
+
+                                fontWeight =
+                                    FontWeight.Bold,
+
+                                letterSpacing =
+                                    1.5.sp,
+                            )
+
+                            Text(
+                                text =
+                                    if (editorAllDay) {
+                                        "Full-day Calendar event"
+                                    } else {
+                                        "Use start and finish times"
+                                    },
+
+                                color =
+                                    primaryText,
+
+                                fontSize =
+                                    12.sp,
+                            )
+                        }
+
+
+                        Switch(
+                            checked =
+                                editorAllDay,
+
+                            onCheckedChange = {
+                                editorAllDay =
+                                    it
+
+                                editorError =
+                                    null
+                            },
+
+                            enabled =
+                                !editorBusy &&
+                                        (
+                                                !editingRecurringEvent ||
+                                                        recurringEditScope ==
+                                                        RecurringEditScope.ENTIRE_SERIES
+                                                ),
+                        )
+                    }
+
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                12.dp
+                            )
+                    )
+
+
                     EditorValueRow(
                         label =
                             "DATE",
@@ -2437,70 +2758,75 @@ fun CypherCalendarScreen(
                     )
 
 
-                    EditorValueRow(
-                        label =
-                            "START",
+                    if (!editorAllDay) {
 
-                        value =
-                            formatEditorTime(
-                                editorStartMillis
-                            ),
+                        EditorValueRow(
+                            label =
+                                "START",
 
-                        accent =
-                            accent,
+                            value =
+                                formatEditorTime(
+                                    editorStartMillis
+                                ),
 
-                        enabled =
-                            !editorBusy &&
-                                    (
-                                            !editingRecurringEvent ||
-                                                    recurringEditScope != null
-                                            ),
+                            accent =
+                                accent,
 
-                        onClick = {
-                            openStartTimePicker()
-                        },
-                    )
+                            enabled =
+                                !editorBusy &&
+                                        (
+                                                !editingRecurringEvent ||
+                                                        recurringEditScope != null
+                                                ),
 
-
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                8.dp
-                            )
-                    )
+                            onClick = {
+                                openStartTimePicker()
+                            },
+                        )
 
 
-                    EditorValueRow(
-                        label =
-                            "END",
-
-                        value =
-                            formatEditorTime(
-                                editorEndMillis
-                            ),
-
-                        accent =
-                            accent,
-
-                        enabled =
-                            !editorBusy &&
-                                    (
-                                            !editingRecurringEvent ||
-                                                    recurringEditScope != null
-                                            ),
-
-                        onClick = {
-                            openEndTimePicker()
-                        },
-                    )
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    8.dp
+                                )
+                        )
 
 
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                14.dp
-                            )
-                    )
+                        EditorValueRow(
+                            label =
+                                "END",
+
+                            value =
+                                formatEditorTime(
+                                    editorEndMillis
+                                ),
+
+                            accent =
+                                accent,
+
+                            enabled =
+                                !editorBusy &&
+                                        (
+                                                !editingRecurringEvent ||
+                                                        recurringEditScope != null
+                                                ),
+
+                            onClick = {
+                                openEndTimePicker()
+                            },
+                        )
+
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    14.dp
+                                )
+                        )
+
+
+                    }
 
 
                     Text(

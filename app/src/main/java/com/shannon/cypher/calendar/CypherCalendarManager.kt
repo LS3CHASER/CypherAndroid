@@ -28,6 +28,11 @@ class CypherCalendarManager(
         val eventTimezone: String,
     )
 
+    data class EventDetails(
+        val location: String,
+        val description: String,
+    )
+
 
     fun hasReadPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -242,6 +247,68 @@ class CypherCalendarManager(
     }
 
 
+    fun getEventDetails(
+        eventId: Long,
+    ): EventDetails {
+
+        if (
+            !hasReadPermission() ||
+            eventId <= 0L
+        ) {
+            return EventDetails(
+                location = "",
+                description = "",
+            )
+        }
+
+        val uri =
+            ContentUris.withAppendedId(
+                CalendarContract.Events.CONTENT_URI,
+                eventId,
+            )
+
+        val projection =
+            arrayOf(
+                CalendarContract.Events.EVENT_LOCATION,
+                CalendarContract.Events.DESCRIPTION,
+            )
+
+        appContext.contentResolver
+            .query(
+                uri,
+                projection,
+                null,
+                null,
+                null,
+            )
+            ?.use { cursor ->
+
+                if (cursor.moveToFirst()) {
+                    return EventDetails(
+                        location =
+                            cursor.getString(
+                                cursor.getColumnIndexOrThrow(
+                                    CalendarContract.Events.EVENT_LOCATION
+                                )
+                            ).orEmpty(),
+
+                        description =
+                            cursor.getString(
+                                cursor.getColumnIndexOrThrow(
+                                    CalendarContract.Events.DESCRIPTION
+                                )
+                            ).orEmpty(),
+                    )
+                }
+            }
+
+        return EventDetails(
+            location = "",
+            description = "",
+        )
+    }
+
+
     fun getRecurrenceRule(
         eventId: Long,
     ): String? {
@@ -399,6 +466,8 @@ class CypherCalendarManager(
         newStartTimeMillis: Long,
         newEndTimeMillis: Long,
         reminderMinutes: Int?,
+        location: String = "",
+        description: String = "",
     ): Long? {
 
         if (
@@ -432,6 +501,16 @@ class CypherCalendarManager(
                 put(
                     CalendarContract.Events.TITLE,
                     title.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.EVENT_LOCATION,
+                    location.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.DESCRIPTION,
+                    description.trim(),
                 )
 
                 put(
@@ -652,6 +731,9 @@ class CypherCalendarManager(
         newOccurrenceStartMillis: Long,
         newOccurrenceEndMillis: Long,
         recurrenceRule: String? = null,
+        location: String = "",
+        description: String = "",
+        allDay: Boolean = false,
     ): Boolean {
 
         if (
@@ -709,6 +791,15 @@ class CypherCalendarManager(
 
             recurrenceRule =
                 ruleToUse,
+
+            location =
+                location,
+
+            description =
+                description,
+
+            allDay =
+                allDay,
         )
     }
 
@@ -849,6 +940,9 @@ class CypherCalendarManager(
         endTimeMillis: Long,
         reminderMinutes: Int? = null,
         recurrenceRule: String? = null,
+        location: String = "",
+        description: String = "",
+        allDay: Boolean = false,
     ): Long? {
 
         if (
@@ -886,13 +980,29 @@ class CypherCalendarManager(
                 )
 
                 put(
+                    CalendarContract.Events.EVENT_LOCATION,
+                    location.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.DESCRIPTION,
+                    description.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.ALL_DAY,
+                    if (allDay) 1 else 0,
+                )
+
+
+                put(
                     CalendarContract.Events.DTSTART,
                     startTimeMillis,
                 )
 
                 put(
                     CalendarContract.Events.EVENT_TIMEZONE,
-                    TimeZone.getDefault().id,
+                    if (allDay) "UTC" else TimeZone.getDefault().id,
                 )
 
                 if (cleanRule == null) {
@@ -962,6 +1072,9 @@ class CypherCalendarManager(
         title: String,
         startTimeMillis: Long,
         endTimeMillis: Long,
+        location: String = "",
+        description: String = "",
+        allDay: Boolean = false,
     ): Boolean {
 
         if (
@@ -985,6 +1098,22 @@ class CypherCalendarManager(
                 )
 
                 put(
+                    CalendarContract.Events.EVENT_LOCATION,
+                    location.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.DESCRIPTION,
+                    description.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.ALL_DAY,
+                    if (allDay) 1 else 0,
+                )
+
+
+                put(
                     CalendarContract.Events.DTSTART,
                     startTimeMillis,
                 )
@@ -996,7 +1125,7 @@ class CypherCalendarManager(
 
                 put(
                     CalendarContract.Events.EVENT_TIMEZONE,
-                    TimeZone.getDefault().id,
+                    if (allDay) "UTC" else TimeZone.getDefault().id,
                 )
             }
 
@@ -1029,6 +1158,9 @@ class CypherCalendarManager(
         startTimeMillis: Long,
         endTimeMillis: Long,
         recurrenceRule: String?,
+        location: String = "",
+        description: String = "",
+        allDay: Boolean = false,
     ): Boolean {
 
         if (
@@ -1058,13 +1190,29 @@ class CypherCalendarManager(
                 )
 
                 put(
+                    CalendarContract.Events.EVENT_LOCATION,
+                    location.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.DESCRIPTION,
+                    description.trim(),
+                )
+
+                put(
+                    CalendarContract.Events.ALL_DAY,
+                    if (allDay) 1 else 0,
+                )
+
+
+                put(
                     CalendarContract.Events.DTSTART,
                     startTimeMillis,
                 )
 
                 put(
                     CalendarContract.Events.EVENT_TIMEZONE,
-                    TimeZone.getDefault().id,
+                    if (allDay) "UTC" else TimeZone.getDefault().id,
                 )
 
                 if (cleanRule == null) {
@@ -1124,6 +1272,8 @@ class CypherCalendarManager(
         eventId: Long,
         startTimeMillis: Long,
         endTimeMillis: Long,
+        location: String = "",
+        description: String = "",
     ): Boolean {
 
         if (!hasWritePermission()) {
