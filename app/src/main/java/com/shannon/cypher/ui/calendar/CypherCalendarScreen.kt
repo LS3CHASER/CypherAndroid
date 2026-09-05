@@ -102,6 +102,19 @@ private enum class CalendarRepeatEnd {
 }
 
 
+private enum class CalendarViewMode {
+    MONTH,
+    AGENDA,
+}
+
+
+private data class CalendarAgendaItem(
+    val event: CypherCalendarEvent,
+    val location: String,
+    val description: String,
+)
+
+
 @Composable
 fun CypherCalendarScreen(
     calendarManager: CypherCalendarManager,
@@ -216,6 +229,22 @@ fun CypherCalendarScreen(
             label =
                 "CalendarScreenRingRotation",
         )
+
+
+    var calendarViewMode by
+    remember {
+        mutableStateOf(
+            CalendarViewMode.MONTH
+        )
+    }
+
+
+    var agendaItems by
+    remember {
+        mutableStateOf(
+            emptyList<CalendarAgendaItem>()
+        )
+    }
 
 
     var displayedMonth by
@@ -1577,6 +1606,94 @@ fun CypherCalendarScreen(
     }
 
 
+    LaunchedEffect(
+        refreshToken,
+        calendarViewMode,
+    ) {
+
+        if (
+            calendarViewMode ==
+            CalendarViewMode.AGENDA
+        ) {
+
+            val agendaStart =
+                startOfDay(
+                    Calendar.getInstance()
+                )
+
+
+            val agendaEnd =
+                (agendaStart.clone() as Calendar)
+                    .apply {
+                        add(
+                            Calendar.DAY_OF_YEAR,
+                            90,
+                        )
+                    }
+
+
+            agendaItems =
+                withContext(
+                    Dispatchers.IO
+                ) {
+
+                    val events =
+                        calendarManager
+                            .getEventsBetween(
+                                startMillis =
+                                    agendaStart.timeInMillis,
+
+                                endMillis =
+                                    agendaEnd.timeInMillis,
+                            )
+
+
+                    val detailsById =
+                        events
+                            .map {
+                                it.id
+                            }
+                            .distinct()
+                            .associateWith { eventId ->
+
+                                calendarManager
+                                    .getEventDetails(
+                                        eventId
+                                    )
+                            }
+
+
+                    events
+                        .map { event ->
+
+                            val details =
+                                detailsById[
+                                    event.id
+                                ]
+
+                            CalendarAgendaItem(
+                                event =
+                                    event,
+
+                                location =
+                                    details
+                                        ?.location
+                                        .orEmpty(),
+
+                                description =
+                                    details
+                                        ?.description
+                                        .orEmpty(),
+                            )
+                        }
+                        .sortedBy {
+                            it.event.startTimeMillis
+                        }
+                }
+        }
+    }
+
+
     val selectedDayEvents =
         monthEvents
             .filter { event ->
@@ -1916,141 +2033,14 @@ fun CypherCalendarScreen(
             Spacer(
                 modifier =
                     Modifier.height(
-                        24.dp
-                    )
-            )
-
-
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth(),
-
-                horizontalArrangement =
-                    Arrangement.SpaceBetween,
-
-                verticalAlignment =
-                    Alignment.CenterVertically,
-            ) {
-
-
-                MonthButton(
-                    text =
-                        "‹",
-
-                    accent =
-                        accent,
-
-                    onClick = {
-
-                        val newMonth =
-                            previousMonth(
-                                displayedMonth
-                            )
-
-                        displayedMonth =
-                            newMonth
-
-                        selectedDay =
-                            startOfMonth(
-                                newMonth
-                            )
-                    },
-                )
-
-
-                Column(
-                    horizontalAlignment =
-                        Alignment.CenterHorizontally,
-                ) {
-
-                    Text(
-                        text =
-                            SimpleDateFormat(
-                                "MMMM",
-                                Locale.getDefault(),
-                            )
-                                .format(
-                                    displayedMonth.time
-                                )
-                                .uppercase(),
-
-                        color =
-                            primaryText,
-
-                        fontSize =
-                            20.sp,
-
-                        fontWeight =
-                            FontWeight.Bold,
-
-                        letterSpacing =
-                            2.sp,
-                    )
-
-
-                    Text(
-                        text =
-                            SimpleDateFormat(
-                                "yyyy",
-                                Locale.getDefault(),
-                            )
-                                .format(
-                                    displayedMonth.time
-                                ),
-
-                        color =
-                            secondaryText,
-
-                        fontSize =
-                            12.sp,
-                    )
-                }
-
-
-                MonthButton(
-                    text =
-                        "›",
-
-                    accent =
-                        accent,
-
-                    onClick = {
-
-                        val newMonth =
-                            nextMonth(
-                                displayedMonth
-                            )
-
-                        displayedMonth =
-                            newMonth
-
-                        selectedDay =
-                            startOfMonth(
-                                newMonth
-                            )
-                    },
-                )
-            }
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
                         18.dp
                     )
             )
 
 
-            CalendarMonthGrid(
-                displayedMonth =
-                    displayedMonth,
-
-                selectedDay =
-                    selectedDay,
-
-                events =
-                    monthEvents,
+            CalendarViewToggle(
+                selectedMode =
+                    calendarViewMode,
 
                 accent =
                     accent,
@@ -2064,10 +2054,9 @@ fun CypherCalendarScreen(
                 secondaryText =
                     secondaryText,
 
-                onDaySelected = { day ->
-
-                    selectedDay =
-                        day
+                onModeSelected = {
+                    calendarViewMode =
+                        it
                 },
             )
 
@@ -2075,185 +2064,76 @@ fun CypherCalendarScreen(
             Spacer(
                 modifier =
                     Modifier.height(
-                        20.dp
+                        18.dp
                     )
             )
 
 
-            Text(
-                text =
-                    if (
-                        isToday(
-                            selectedDay
-                        )
-                    ) {
-
-                        "TODAY // " +
-                                formatSelectedDate(
-                                    selectedDay
-                                )
-
-                    } else {
-
-                        formatSelectedDate(
-                            selectedDay
-                        )
-                    },
-
-                color =
-                    accent,
-
-                fontSize =
-                    12.sp,
-
-                fontWeight =
-                    FontWeight.Bold,
-
-                letterSpacing =
-                    1.5.sp,
-            )
-
-
-            Spacer(
-                modifier =
-                    Modifier.height(
-                        10.dp
-                    )
-            )
-
-
-            LazyColumn(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(
-                            1f
-                        ),
-
-                verticalArrangement =
-                    Arrangement.spacedBy(
-                        10.dp
-                    ),
+            if (
+                calendarViewMode ==
+                CalendarViewMode.MONTH
             ) {
 
 
-                if (
-                    selectedDayEvents.isEmpty()
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth(),
+
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween,
+
+                    verticalAlignment =
+                        Alignment.CenterVertically,
                 ) {
 
-                    item {
 
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        color =
-                                            panel,
+                    MonthButton(
+                        text =
+                            "‹",
 
-                                        shape =
-                                            RoundedCornerShape(
-                                                16.dp
-                                            ),
-                                    )
-                                    .border(
-                                        width =
-                                            1.dp,
+                        accent =
+                            accent,
 
-                                        color =
-                                            accent.copy(
-                                                alpha =
-                                                    0.20f
-                                            ),
+                        onClick = {
 
-                                        shape =
-                                            RoundedCornerShape(
-                                                16.dp
-                                            ),
-                                    )
-                                    .padding(
-                                        20.dp
-                                    ),
-                        ) {
+                            val newMonth =
+                                previousMonth(
+                                    displayedMonth
+                                )
 
-                            Text(
-                                text =
-                                    "No events scheduled.",
+                            displayedMonth =
+                                newMonth
 
-                                color =
-                                    secondaryText,
-
-                                fontSize =
-                                    14.sp,
-                            )
-                        }
-                    }
-
-                } else {
-
-                    items(
-                        items =
-                            selectedDayEvents,
-
-                        key = { event ->
-
-                            "${event.id}-${event.startTimeMillis}"
+                            selectedDay =
+                                startOfMonth(
+                                    newMonth
+                                )
                         },
-                    ) { event ->
-
-                        CalendarEventCard(
-                            event =
-                                event,
-
-                            panel =
-                                panel,
-
-                            accent =
-                                accent,
-
-                            secondaryAccent =
-                                secondaryAccent,
-
-                            primaryText =
-                                primaryText,
-
-                            secondaryText =
-                                secondaryText,
-
-                            onClick = {
-
-                                openEditEditor(
-                                    event
-                                )
-                            },
-                        )
-                    }
-                }
+                    )
 
 
-                if (
-                    nextEvent != null
-                ) {
-
-                    item {
-
-                        Spacer(
-                            modifier =
-                                Modifier.height(
-                                    8.dp
-                                )
-                        )
-
+                    Column(
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally,
+                    ) {
 
                         Text(
                             text =
-                                "NEXT UP",
+                                SimpleDateFormat(
+                                    "MMMM",
+                                    Locale.getDefault(),
+                                )
+                                    .format(
+                                        displayedMonth.time
+                                    )
+                                    .uppercase(),
 
                             color =
-                                accent,
+                                primaryText,
 
                             fontSize =
-                                11.sp,
+                                20.sp,
 
                             fontWeight =
                                 FontWeight.Bold,
@@ -2263,102 +2143,408 @@ fun CypherCalendarScreen(
                         )
 
 
-                        Spacer(
-                            modifier =
-                                Modifier.height(
-                                    8.dp
+                        Text(
+                            text =
+                                SimpleDateFormat(
+                                    "yyyy",
+                                    Locale.getDefault(),
                                 )
-                        )
-
-
-                        Box(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .background(
-                                        color =
-                                            secondaryAccent.copy(
-                                                alpha =
-                                                    0.08f
-                                            ),
-
-                                        shape =
-                                            RoundedCornerShape(
-                                                16.dp
-                                            ),
-                                    )
-                                    .border(
-                                        width =
-                                            1.dp,
-
-                                        color =
-                                            secondaryAccent.copy(
-                                                alpha =
-                                                    0.45f
-                                            ),
-
-                                        shape =
-                                            RoundedCornerShape(
-                                                16.dp
-                                            ),
-                                    )
-                                    .padding(
-                                        16.dp
+                                    .format(
+                                        displayedMonth.time
                                     ),
+
+                            color =
+                                secondaryText,
+
+                            fontSize =
+                                12.sp,
+                        )
+                    }
+
+
+                    MonthButton(
+                        text =
+                            "›",
+
+                        accent =
+                            accent,
+
+                        onClick = {
+
+                            val newMonth =
+                                nextMonth(
+                                    displayedMonth
+                                )
+
+                            displayedMonth =
+                                newMonth
+
+                            selectedDay =
+                                startOfMonth(
+                                    newMonth
+                                )
+                        },
+                    )
+                }
+
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            18.dp
+                        )
+                )
+
+
+                CalendarMonthGrid(
+                    displayedMonth =
+                        displayedMonth,
+
+                    selectedDay =
+                        selectedDay,
+
+                    events =
+                        monthEvents,
+
+                    accent =
+                        accent,
+
+                    secondaryAccent =
+                        secondaryAccent,
+
+                    primaryText =
+                        primaryText,
+
+                    secondaryText =
+                        secondaryText,
+
+                    onDaySelected = { day ->
+
+                        selectedDay =
+                            day
+                    },
+                )
+
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            20.dp
+                        )
+                )
+
+
+                Text(
+                    text =
+                        if (
+                            isToday(
+                                selectedDay
+                            )
                         ) {
 
-                            Column {
+                            "TODAY // " +
+                                    formatSelectedDate(
+                                        selectedDay
+                                    )
 
-                                Text(
-                                    text =
-                                        nextEvent.title,
+                        } else {
 
-                                    color =
-                                        primaryText,
+                            formatSelectedDate(
+                                selectedDay
+                            )
+                        },
 
-                                    fontSize =
-                                        15.sp,
+                    color =
+                        accent,
 
-                                    fontWeight =
-                                        FontWeight.Bold,
-                                )
+                    fontSize =
+                        12.sp,
+
+                    fontWeight =
+                        FontWeight.Bold,
+
+                    letterSpacing =
+                        1.5.sp,
+                )
 
 
-                                Spacer(
-                                    modifier =
-                                        Modifier.height(
-                                            5.dp
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            10.dp
+                        )
+                )
+
+
+                LazyColumn(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(
+                                1f
+                            ),
+
+                    verticalArrangement =
+                        Arrangement.spacedBy(
+                            10.dp
+                        ),
+                ) {
+
+
+                    if (
+                        selectedDayEvents.isEmpty()
+                    ) {
+
+                        item {
+
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            color =
+                                                panel,
+
+                                            shape =
+                                                RoundedCornerShape(
+                                                    16.dp
+                                                ),
                                         )
-                                )
+                                        .border(
+                                            width =
+                                                1.dp,
 
+                                            color =
+                                                accent.copy(
+                                                    alpha =
+                                                        0.20f
+                                                ),
+
+                                            shape =
+                                                RoundedCornerShape(
+                                                    16.dp
+                                                ),
+                                        )
+                                        .padding(
+                                            20.dp
+                                        ),
+                            ) {
 
                                 Text(
                                     text =
-                                        formatNextEvent(
-                                            nextEvent
-                                        ),
+                                        "No events scheduled.",
 
                                     color =
-                                        secondaryAccent,
+                                        secondaryText,
 
                                     fontSize =
-                                        12.sp,
+                                        14.sp,
                                 )
                             }
                         }
+
+                    } else {
+
+                        items(
+                            items =
+                                selectedDayEvents,
+
+                            key = { event ->
+
+                                "${event.id}-${event.startTimeMillis}"
+                            },
+                        ) { event ->
+
+                            CalendarEventCard(
+                                event =
+                                    event,
+
+                                panel =
+                                    panel,
+
+                                accent =
+                                    accent,
+
+                                secondaryAccent =
+                                    secondaryAccent,
+
+                                primaryText =
+                                    primaryText,
+
+                                secondaryText =
+                                    secondaryText,
+
+                                onClick = {
+
+                                    openEditEditor(
+                                        event
+                                    )
+                                },
+                            )
+                        }
+                    }
+
+
+                    if (
+                        nextEvent != null
+                    ) {
+
+                        item {
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(
+                                        8.dp
+                                    )
+                            )
+
+
+                            Text(
+                                text =
+                                    "NEXT UP",
+
+                                color =
+                                    accent,
+
+                                fontSize =
+                                    11.sp,
+
+                                fontWeight =
+                                    FontWeight.Bold,
+
+                                letterSpacing =
+                                    2.sp,
+                            )
+
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(
+                                        8.dp
+                                    )
+                            )
+
+
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            color =
+                                                secondaryAccent.copy(
+                                                    alpha =
+                                                        0.08f
+                                                ),
+
+                                            shape =
+                                                RoundedCornerShape(
+                                                    16.dp
+                                                ),
+                                        )
+                                        .border(
+                                            width =
+                                                1.dp,
+
+                                            color =
+                                                secondaryAccent.copy(
+                                                    alpha =
+                                                        0.45f
+                                                ),
+
+                                            shape =
+                                                RoundedCornerShape(
+                                                    16.dp
+                                                ),
+                                        )
+                                        .padding(
+                                            16.dp
+                                        ),
+                            ) {
+
+                                Column {
+
+                                    Text(
+                                        text =
+                                            nextEvent.title,
+
+                                        color =
+                                            primaryText,
+
+                                        fontSize =
+                                            15.sp,
+
+                                        fontWeight =
+                                            FontWeight.Bold,
+                                    )
+
+
+                                    Spacer(
+                                        modifier =
+                                            Modifier.height(
+                                                5.dp
+                                            )
+                                    )
+
+
+                                    Text(
+                                        text =
+                                            formatNextEvent(
+                                                nextEvent
+                                            ),
+
+                                        color =
+                                            secondaryAccent,
+
+                                        fontSize =
+                                            12.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+
+                    item {
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    24.dp
+                                )
+                        )
                     }
                 }
 
 
-                item {
+            } else {
 
-                    Spacer(
-                        modifier =
-                            Modifier.height(
-                                24.dp
-                            )
-                    )
-                }
+
+                CalendarAgendaView(
+                    items =
+                        agendaItems,
+
+                    panel =
+                        panel,
+
+                    accent =
+                        accent,
+
+                    secondaryAccent =
+                        secondaryAccent,
+
+                    primaryText =
+                        primaryText,
+
+                    secondaryText =
+                        secondaryText,
+
+                    onEventClick = { event ->
+
+                        openEditEditor(
+                            event
+                        )
+                    },
+                )
             }
         }
     }
@@ -3943,6 +4129,642 @@ private fun ReminderChoice(
 
 
 @Composable
+private fun CalendarViewToggle(
+    selectedMode: CalendarViewMode,
+    accent: Color,
+    secondaryAccent: Color,
+    primaryText: Color,
+    secondaryText: Color,
+    onModeSelected: (CalendarViewMode) -> Unit,
+) {
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    color =
+                        Color(
+                            0xFF110D16
+                        ),
+
+                    shape =
+                        RoundedCornerShape(
+                            14.dp
+                        ),
+                )
+                .border(
+                    width =
+                        1.dp,
+
+                    color =
+                        accent.copy(
+                            alpha =
+                                0.22f
+                        ),
+
+                    shape =
+                        RoundedCornerShape(
+                            14.dp
+                        ),
+                )
+                .padding(
+                    4.dp
+                ),
+    ) {
+
+        CalendarViewToggleButton(
+            text =
+                "MONTH",
+
+            selected =
+                selectedMode ==
+                        CalendarViewMode.MONTH,
+
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+
+            accent =
+                accent,
+
+            secondaryAccent =
+                secondaryAccent,
+
+            primaryText =
+                primaryText,
+
+            secondaryText =
+                secondaryText,
+
+            onClick = {
+                onModeSelected(
+                    CalendarViewMode.MONTH
+                )
+            },
+        )
+
+
+        CalendarViewToggleButton(
+            text =
+                "AGENDA",
+
+            selected =
+                selectedMode ==
+                        CalendarViewMode.AGENDA,
+
+            modifier =
+                Modifier.weight(
+                    1f
+                ),
+
+            accent =
+                accent,
+
+            secondaryAccent =
+                secondaryAccent,
+
+            primaryText =
+                primaryText,
+
+            secondaryText =
+                secondaryText,
+
+            onClick = {
+                onModeSelected(
+                    CalendarViewMode.AGENDA
+                )
+            },
+        )
+    }
+}
+
+
+@Composable
+private fun CalendarViewToggleButton(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier,
+    accent: Color,
+    secondaryAccent: Color,
+    primaryText: Color,
+    secondaryText: Color,
+    onClick: () -> Unit,
+) {
+
+    Box(
+        modifier =
+            modifier
+                .background(
+                    color =
+                        if (
+                            selected
+                        ) {
+                            accent.copy(
+                                alpha =
+                                    0.20f
+                            )
+                        } else {
+                            Color.Transparent
+                        },
+
+                    shape =
+                        RoundedCornerShape(
+                            10.dp
+                        ),
+                )
+                .border(
+                    width =
+                        1.dp,
+
+                    color =
+                        if (
+                            selected
+                        ) {
+                            secondaryAccent.copy(
+                                alpha =
+                                    0.50f
+                            )
+                        } else {
+                            Color.Transparent
+                        },
+
+                    shape =
+                        RoundedCornerShape(
+                            10.dp
+                        ),
+                )
+                .clickable {
+                    onClick()
+                }
+                .padding(
+                    vertical =
+                        10.dp
+                ),
+
+        contentAlignment =
+            Alignment.Center,
+    ) {
+
+        Text(
+            text =
+                text,
+
+            color =
+                if (
+                    selected
+                ) {
+                    primaryText
+                } else {
+                    secondaryText
+                },
+
+            fontSize =
+                11.sp,
+
+            fontWeight =
+                FontWeight.Bold,
+
+            letterSpacing =
+                1.5.sp,
+        )
+    }
+}
+
+
+@Composable
+private fun CalendarAgendaView(
+    items: List<CalendarAgendaItem>,
+    panel: Color,
+    accent: Color,
+    secondaryAccent: Color,
+    primaryText: Color,
+    secondaryText: Color,
+    onEventClick: (CypherCalendarEvent) -> Unit,
+) {
+
+    val groupedItems =
+        items.groupBy { item ->
+
+            agendaDateKey(
+                item.event
+                    .startTimeMillis
+            )
+        }
+
+
+    LazyColumn(
+        modifier =
+            Modifier
+                .fillMaxSize(),
+
+        verticalArrangement =
+            Arrangement.spacedBy(
+                10.dp
+            ),
+    ) {
+
+        item {
+
+            Text(
+                text =
+                    "UPCOMING // 90 DAYS",
+
+                color =
+                    accent,
+
+                fontSize =
+                    12.sp,
+
+                fontWeight =
+                    FontWeight.Bold,
+
+                letterSpacing =
+                    1.5.sp,
+            )
+
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        2.dp
+                    )
+            )
+        }
+
+
+        if (
+            items.isEmpty()
+        ) {
+
+            item {
+
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color =
+                                    panel,
+
+                                shape =
+                                    RoundedCornerShape(
+                                        16.dp
+                                    ),
+                            )
+                            .border(
+                                width =
+                                    1.dp,
+
+                                color =
+                                    accent.copy(
+                                        alpha =
+                                            0.20f
+                                    ),
+
+                                shape =
+                                    RoundedCornerShape(
+                                        16.dp
+                                    ),
+                            )
+                            .padding(
+                                20.dp
+                            ),
+                ) {
+
+                    Text(
+                        text =
+                            "No upcoming events in the next 90 days.",
+
+                        color =
+                            secondaryText,
+
+                        fontSize =
+                            14.sp,
+                    )
+                }
+            }
+
+        } else {
+
+            groupedItems
+                .forEach { (
+                               dateKey,
+                               dayItems,
+                           ) ->
+
+                    item(
+                        key =
+                            "heading-$dateKey"
+                    ) {
+
+                        Spacer(
+                            modifier =
+                                Modifier.height(
+                                    6.dp
+                                )
+                        )
+
+
+                        Text(
+                            text =
+                                formatAgendaHeading(
+                                    dateKey
+                                ),
+
+                            color =
+                                accent,
+
+                            fontSize =
+                                11.sp,
+
+                            fontWeight =
+                                FontWeight.Bold,
+
+                            letterSpacing =
+                                1.5.sp,
+                        )
+                    }
+
+
+                    items(
+                        items =
+                            dayItems,
+
+                        key = { item ->
+
+                            "agenda-${item.event.id}-${item.event.startTimeMillis}"
+                        },
+                    ) { item ->
+
+                        CalendarAgendaEventCard(
+                            item =
+                                item,
+
+                            panel =
+                                panel,
+
+                            accent =
+                                accent,
+
+                            secondaryAccent =
+                                secondaryAccent,
+
+                            primaryText =
+                                primaryText,
+
+                            secondaryText =
+                                secondaryText,
+
+                            onClick = {
+
+                                onEventClick(
+                                    item.event
+                                )
+                            },
+                        )
+                    }
+                }
+        }
+
+
+        item {
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        24.dp
+                    )
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun CalendarAgendaEventCard(
+    item: CalendarAgendaItem,
+    panel: Color,
+    accent: Color,
+    secondaryAccent: Color,
+    primaryText: Color,
+    secondaryText: Color,
+    onClick: () -> Unit,
+) {
+
+    val event =
+        item.event
+
+
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    color =
+                        panel,
+
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                )
+                .border(
+                    width =
+                        1.dp,
+
+                    color =
+                        accent.copy(
+                            alpha =
+                                0.25f
+                        ),
+
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                )
+                .clickable {
+                    onClick()
+                }
+                .padding(
+                    16.dp
+                ),
+    ) {
+
+        Box(
+            modifier =
+                Modifier
+                    .size(
+                        width =
+                            3.dp,
+
+                        height =
+                            if (
+                                item.location.isNotBlank() ||
+                                item.description.isNotBlank()
+                            ) {
+                                72.dp
+                            } else {
+                                54.dp
+                            },
+                    )
+                    .background(
+                        color =
+                            secondaryAccent,
+
+                        shape =
+                            RoundedCornerShape(
+                                2.dp
+                            ),
+                    )
+        )
+
+
+        Spacer(
+            modifier =
+                Modifier.size(
+                    12.dp
+                )
+        )
+
+
+        Column(
+            modifier =
+                Modifier.weight(
+                    1f
+                )
+        ) {
+
+            Text(
+                text =
+                    event.title,
+
+                color =
+                    primaryText,
+
+                fontSize =
+                    15.sp,
+
+                fontWeight =
+                    FontWeight.Bold,
+            )
+
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        5.dp
+                    )
+            )
+
+
+            Text(
+                text =
+                    formatEventTime(
+                        event
+                    ),
+
+                color =
+                    secondaryAccent,
+
+                fontSize =
+                    12.sp,
+            )
+
+
+            if (
+                item.location.isNotBlank()
+            ) {
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            5.dp
+                        )
+                )
+
+
+                Text(
+                    text =
+                        "⌖ " +
+                                item.location,
+
+                    color =
+                        primaryText.copy(
+                            alpha =
+                                0.85f
+                        ),
+
+                    fontSize =
+                        11.sp,
+                )
+            }
+
+
+            if (
+                item.description.isNotBlank()
+            ) {
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            5.dp
+                        )
+                )
+
+
+                Text(
+                    text =
+                        item.description
+                            .replace(
+                                "\n",
+                                " "
+                            )
+                            .take(
+                                90
+                            ),
+
+                    color =
+                        secondaryText,
+
+                    fontSize =
+                        11.sp,
+
+                    maxLines =
+                        2,
+                )
+            }
+
+
+            Spacer(
+                modifier =
+                    Modifier.height(
+                        4.dp
+                    )
+            )
+
+
+            Text(
+                text =
+                    event.calendarName,
+
+                color =
+                    secondaryText,
+
+                fontSize =
+                    10.sp,
+
+                letterSpacing =
+                    0.5.sp,
+            )
+        }
+    }
+}
+
+
+@Composable
 private fun CalendarMonthGrid(
     displayedMonth: Calendar,
     selectedDay: Calendar,
@@ -4400,6 +5222,94 @@ private fun MonthButton(
             fontSize =
                 28.sp,
         )
+    }
+}
+
+
+private fun agendaDateKey(
+    millis: Long,
+): Long {
+
+    return startOfDay(
+        Calendar.getInstance()
+            .apply {
+                timeInMillis =
+                    millis
+            }
+    )
+        .timeInMillis
+}
+
+
+private fun formatAgendaHeading(
+    dateKey: Long,
+): String {
+
+    val day =
+        Calendar.getInstance()
+            .apply {
+                timeInMillis =
+                    dateKey
+            }
+
+
+    val today =
+        startOfDay(
+            Calendar.getInstance()
+        )
+
+
+    val tomorrow =
+        (today.clone() as Calendar)
+            .apply {
+                add(
+                    Calendar.DAY_OF_YEAR,
+                    1,
+                )
+            }
+
+
+    return when {
+
+        sameDay(
+            day,
+            today,
+        ) ->
+            "TODAY // " +
+                    SimpleDateFormat(
+                        "EEE d MMM",
+                        Locale.getDefault(),
+                    )
+                        .format(
+                            day.time
+                        )
+                        .uppercase()
+
+
+        sameDay(
+            day,
+            tomorrow,
+        ) ->
+            "TOMORROW // " +
+                    SimpleDateFormat(
+                        "EEE d MMM",
+                        Locale.getDefault(),
+                    )
+                        .format(
+                            day.time
+                        )
+                        .uppercase()
+
+
+        else ->
+            SimpleDateFormat(
+                "EEEE d MMMM",
+                Locale.getDefault(),
+            )
+                .format(
+                    day.time
+                )
+                .uppercase()
     }
 }
 
