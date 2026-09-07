@@ -288,6 +288,42 @@ fun CypherMenuOverlay(
 
             MenuItem(
                 title =
+                    "WEATHER",
+
+                selected =
+                    currentScreen ==
+                            CypherScreen.WEATHER,
+
+                accent =
+                    accent,
+
+                selectedAccent =
+                    secondaryAccent,
+
+                secondaryText =
+                    secondaryText,
+
+                onClick = {
+
+                    onScreenSelected(
+                        CypherScreen.WEATHER
+                    )
+
+                    onDismiss()
+                },
+            )
+
+
+            Spacer(
+                modifier =
+                    Modifier.size(
+                        12.dp
+                    )
+            )
+
+
+            MenuItem(
+                title =
                     "VOICE LAB",
 
                 selected =

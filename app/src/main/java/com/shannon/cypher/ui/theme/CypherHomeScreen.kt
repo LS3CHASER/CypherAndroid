@@ -79,6 +79,7 @@ import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.calendar.CypherCalendarScreen
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
+import com.shannon.cypher.ui.weather.CypherWeatherScreen
 import com.shannon.cypher.ui.theme.CypherTheme
 import com.shannon.cypher.voicelab.CypherVoiceLabScreen
 import com.shannon.cypher.weather.CypherWeatherParser
@@ -5687,6 +5688,73 @@ fun CypherHomeScreen(
                     }
                 }
             }
+
+
+            CypherScreen.WEATHER -> {
+
+                val service =
+                    weatherService
+
+
+                if (
+                    service != null
+                ) {
+
+                    CypherWeatherScreen(
+                        weatherService =
+                            service,
+
+                        isListening =
+                            isListening,
+
+                        isThinking =
+                            isThinking,
+
+                        isSpeaking =
+                            isSpeaking,
+
+                        onMenuClick = {
+
+                            isMenuOpen =
+                                true
+                        },
+
+                        onMicClick = {
+
+                            handleMicClick()
+                        },
+                    )
+
+                } else {
+
+                    Surface(
+                        modifier =
+                            Modifier.fillMaxSize(),
+
+                        color =
+                            background,
+                    ) {
+
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+
+                            Text(
+                                text =
+                                    "Weather is unavailable in preview mode.",
+
+                                color =
+                                    secondaryText,
+                            )
+                        }
+                    }
+                }
+            }
+
 
 
             CypherScreen.VOICE_LAB -> {

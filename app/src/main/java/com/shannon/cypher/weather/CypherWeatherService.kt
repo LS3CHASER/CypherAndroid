@@ -22,6 +22,75 @@ class CypherWeatherService(
         CypherWeatherClient()
 
 
+    suspend fun getCurrentWeatherResult(): CypherWeatherResult {
+
+        if (
+            !locationProvider
+                .hasLocationPermission()
+        ) {
+
+            throw SecurityException(
+                "Location permission is required."
+            )
+        }
+
+
+        val location =
+            locationProvider
+                .getCurrentLocation()
+                ?: throw IllegalStateException(
+                    "Current location is unavailable."
+                )
+
+
+        return coroutineScope {
+
+            val weatherDeferred =
+                async(
+                    Dispatchers.IO
+                ) {
+
+                    weatherClient
+                        .getWeatherForCoordinates(
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            displayName = "your current location",
+                        )
+                }
+
+
+            val displayNameDeferred =
+                async(
+                    Dispatchers.IO
+                ) {
+
+                    locationProvider
+                        .getDisplayName(
+                            location
+                        )
+                }
+
+
+            val weatherResult =
+                weatherDeferred.await()
+
+
+            val displayName =
+                displayNameDeferred
+                    .await()
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?: weatherResult.locationName
+
+
+            weatherResult.copy(
+                locationName = displayName
+            )
+        }
+    }
+
+
     suspend fun handle(
         message: String,
     ): String? {
@@ -40,9 +109,6 @@ class CypherWeatherService(
                     request.namedLocation != null
                 ) {
 
-                    /*
-                     * Explicit locations do not need GPS.
-                     */
                     withContext(
                         Dispatchers.IO
                     ) {
@@ -55,115 +121,13 @@ class CypherWeatherService(
 
                 } else {
 
-                    if (
-                        !locationProvider
-                            .hasLocationPermission()
-                    ) {
-
-                        return (
-                                "I need location permission to check " +
-                                        "the weather where you are."
-                                )
-                    }
-
-
-                    /*
-                     * This should normally return almost instantly
-                     * from Android's recent location cache.
-                     */
-                    val location =
-                        locationProvider
-                            .getCurrentLocation()
-
-
-                    if (
-                        location == null
-                    ) {
-
-                        return (
-                                "I couldn't get your current location. " +
-                                        "Please make sure location services are turned on."
-                                )
-                    }
-
-
-                    /*
-                     * IMPORTANT:
-                     *
-                     * The weather request and suburb/city lookup run
-                     * in parallel rather than one after the other.
-                     *
-                     * This avoids adding reverse-geocoding time onto
-                     * the weather API response time.
-                     */
-                    coroutineScope {
-
-                        val weatherDeferred =
-                            async(
-                                Dispatchers.IO
-                            ) {
-
-                                weatherClient
-                                    .getWeatherForCoordinates(
-                                        latitude =
-                                            location.latitude,
-
-                                        longitude =
-                                            location.longitude,
-
-                                        displayName =
-                                            "your current location",
-                                    )
-                            }
-
-
-                        val displayNameDeferred =
-                            async(
-                                Dispatchers.IO
-                            ) {
-
-                                locationProvider
-                                    .getDisplayName(
-                                        location
-                                    )
-                            }
-
-
-                        val weatherResult =
-                            weatherDeferred
-                                .await()
-
-
-                        val displayName =
-                            displayNameDeferred
-                                .await()
-                                ?.takeIf {
-
-                                    it.isNotBlank()
-                                }
-                                ?: weatherResult.locationName
-
-
-                        /*
-                         * CypherWeatherResult is a data class, so we
-                         * can preserve the forecast and simply replace
-                         * the temporary GPS label with "Taree",
-                         * "Newcastle", etc.
-                         */
-                        weatherResult.copy(
-                            locationName =
-                                displayName
-                        )
-                    }
+                    getCurrentWeatherResult()
                 }
 
 
             CypherWeatherFormatter.format(
-                request =
-                    request,
-
-                result =
-                    weather,
+                request = request,
+                result = weather,
             )
 
         } catch (

@@ -9,5 +9,7 @@ enum class CypherScreen {
 
     TASKS,
 
+    WEATHER,
+
     VOICE_LAB,
 }
