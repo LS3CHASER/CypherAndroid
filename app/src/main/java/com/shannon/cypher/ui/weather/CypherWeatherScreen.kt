@@ -57,9 +57,12 @@ import com.shannon.cypher.R
 import com.shannon.cypher.weather.CypherWeatherDay
 import com.shannon.cypher.weather.CypherWeatherResult
 import com.shannon.cypher.weather.CypherWeatherService
+import com.shannon.cypher.weather.alerts.CypherActiveWeatherWarning
+import com.shannon.cypher.weather.alerts.CypherWeatherAlertStateStore
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
@@ -136,6 +139,39 @@ fun CypherWeatherScreen(
         mutableStateOf<String?>(null)
     }
 
+    val warningStateStore =
+        remember {
+            CypherWeatherAlertStateStore(
+                context.applicationContext
+            )
+        }
+
+    var activeWarnings by
+    remember {
+        mutableStateOf(
+            warningStateStore
+                .getActiveWarnings()
+        )
+    }
+
+    var showActiveWarnings by
+    remember {
+        mutableStateOf(false)
+    }
+
+    fun refreshWarningState() {
+        activeWarnings =
+            warningStateStore
+                .getActiveWarnings()
+
+        if (
+            activeWarnings.isEmpty()
+        ) {
+            showActiveWarnings =
+                false
+        }
+    }
+
     fun hasLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             context,
@@ -164,6 +200,7 @@ fun CypherWeatherScreen(
                 weatherResult =
                     weatherService.getCurrentWeatherResult()
                 errorMessage = null
+                refreshWarningState()
             } catch (_: SecurityException) {
                 errorMessage =
                     "Location permission is required to load your local weather."
@@ -196,6 +233,15 @@ fun CypherWeatherScreen(
 
     LaunchedEffect(Unit) {
         refreshWeather()
+
+        while (
+            true
+        ) {
+            refreshWarningState()
+            delay(
+                15_000L
+            )
+        }
     }
 
     Surface(
@@ -307,13 +353,83 @@ fun CypherWeatherScreen(
                 modifier = Modifier.height(8.dp)
             )
 
-            Text(
-                text = "WEATHER",
-                color = primaryText,
-                fontSize = 30.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 1.sp,
-            )
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.SpaceBetween,
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+
+                Text(
+                    text = "WEATHER",
+                    color = primaryText,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 1.sp,
+                )
+
+                if (
+                    activeWarnings.isNotEmpty()
+                ) {
+
+                    val warningColor =
+                        Color(
+                            0xFFFFC107
+                        )
+
+                    Box(
+                        modifier =
+                            Modifier
+                                .size(
+                                    52.dp
+                                )
+                                .clickable {
+
+                                    if (
+                                        activeWarnings.size ==
+                                        1
+                                    ) {
+
+                                        activeWarnings
+                                            .firstOrNull()
+                                            ?.url
+                                            ?.takeIf {
+                                                it.isNotBlank()
+                                            }
+                                            ?.let {
+                                                    url ->
+
+                                                context.startActivity(
+                                                    Intent(
+                                                        Intent.ACTION_VIEW,
+                                                        Uri.parse(
+                                                            url
+                                                        ),
+                                                    )
+                                                )
+                                            }
+
+                                    } else {
+
+                                        showActiveWarnings =
+                                            !showActiveWarnings
+                                    }
+                                },
+                        contentAlignment =
+                            Alignment.Center,
+                    ) {
+
+                        Text(
+                            text = "⚠",
+                            color = warningColor,
+                            fontSize = 36.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
 
             Spacer(
                 modifier = Modifier.height(18.dp)
@@ -327,6 +443,51 @@ fun CypherWeatherScreen(
                             rememberScrollState()
                         ),
             ) {
+
+                if (
+                    showActiveWarnings &&
+                    activeWarnings.isNotEmpty()
+                ) {
+
+                    ActiveWeatherWarningsCard(
+                        warnings =
+                            activeWarnings,
+                        panel =
+                            panel,
+                        primaryText =
+                            primaryText,
+                        secondaryText =
+                            secondaryText,
+                        onWarningClick = {
+                                warning ->
+
+                            warning
+                                .url
+                                .takeIf {
+                                    it.isNotBlank()
+                                }
+                                ?.let {
+                                        url ->
+
+                                    context.startActivity(
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse(
+                                                url
+                                            ),
+                                        )
+                                    )
+                                }
+                        },
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                14.dp
+                            )
+                    )
+                }
 
                 when {
                     isLoading -> {
@@ -506,6 +667,7 @@ private fun CurrentWeatherCard(
             text = result.locationName,
             color = secondaryAccent,
             fontSize = 30.sp,
+            fontWeight = FontWeight.Medium,
             letterSpacing = 1.sp,
         )
 
@@ -740,6 +902,169 @@ private fun ForecastDayCard(
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
         )
+    }
+}
+
+
+@Composable
+private fun ActiveWeatherWarningsCard(
+    warnings: List<CypherActiveWeatherWarning>,
+    panel: Color,
+    primaryText: Color,
+    secondaryText: Color,
+    onWarningClick:
+        (CypherActiveWeatherWarning) -> Unit,
+) {
+
+    val warningColor =
+        Color(
+            0xFFFFC107
+        )
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(
+                    color =
+                        panel,
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                )
+                .border(
+                    width =
+                        1.dp,
+                    color =
+                        warningColor
+                            .copy(
+                                alpha =
+                                    0.70f
+                            ),
+                    shape =
+                        RoundedCornerShape(
+                            16.dp
+                        ),
+                )
+                .padding(
+                    16.dp
+                ),
+    ) {
+
+        Text(
+            text =
+                if (
+                    warnings.size ==
+                    1
+                ) {
+                    "ACTIVE BOM WARNING"
+                } else {
+                    "ACTIVE BOM WARNINGS"
+                },
+            color =
+                warningColor,
+            fontSize =
+                12.sp,
+            fontWeight =
+                FontWeight.Bold,
+            letterSpacing =
+                1.5.sp,
+        )
+
+        Spacer(
+            modifier =
+                Modifier.height(
+                    10.dp
+                )
+        )
+
+        warnings.forEachIndexed {
+                index,
+                warning ->
+
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onWarningClick(
+                                warning
+                            )
+                        }
+                        .padding(
+                            vertical =
+                                8.dp
+                        ),
+                verticalAlignment =
+                    Alignment.CenterVertically,
+            ) {
+
+                Text(
+                    text =
+                        "⚠",
+                    color =
+                        warningColor,
+                    fontSize =
+                        24.sp,
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.size(
+                            10.dp
+                        )
+                )
+
+                Column(
+                    modifier =
+                        Modifier.weight(
+                            1f
+                        )
+                ) {
+
+                    Text(
+                        text =
+                            warning.title,
+                        color =
+                            primaryText,
+                        fontSize =
+                            14.sp,
+                        fontWeight =
+                            FontWeight.SemiBold,
+                    )
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(
+                                3.dp
+                            )
+                    )
+
+                    Text(
+                        text =
+                            "Tap to view the BOM warning",
+                        color =
+                            secondaryText,
+                        fontSize =
+                            12.sp,
+                    )
+                }
+            }
+
+            if (
+                index <
+                warnings.lastIndex
+            ) {
+
+                Spacer(
+                    modifier =
+                        Modifier.height(
+                            4.dp
+                        )
+                )
+            }
+        }
     }
 }
 

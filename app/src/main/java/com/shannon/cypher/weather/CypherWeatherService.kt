@@ -2,6 +2,7 @@ package com.shannon.cypher.weather
 
 import android.content.Context
 import com.shannon.cypher.location.CypherLocationProvider
+import com.shannon.cypher.weather.alerts.CypherWeatherAlertProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -20,6 +21,12 @@ class CypherWeatherService(
 
     private val weatherClient =
         CypherWeatherClient()
+
+
+    private val weatherAlertProfile =
+        CypherWeatherAlertProfile(
+            context.applicationContext
+        )
 
 
     suspend fun getCurrentWeatherResult(): CypherWeatherResult {
@@ -82,6 +89,19 @@ class CypherWeatherService(
                         it.isNotBlank()
                     }
                     ?: weatherResult.locationName
+
+
+            weatherAlertProfile
+                .updateFromLocation(
+                    displayName =
+                        displayName,
+
+                    latitude =
+                        location.latitude,
+
+                    longitude =
+                        location.longitude,
+                )
 
 
             weatherResult.copy(

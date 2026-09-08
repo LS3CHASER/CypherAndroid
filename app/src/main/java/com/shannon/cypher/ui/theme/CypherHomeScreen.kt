@@ -84,6 +84,7 @@ import com.shannon.cypher.ui.theme.CypherTheme
 import com.shannon.cypher.voicelab.CypherVoiceLabScreen
 import com.shannon.cypher.weather.CypherWeatherParser
 import com.shannon.cypher.weather.CypherWeatherService
+import com.shannon.cypher.weather.alerts.CypherWeatherAlertScheduler
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -173,6 +174,16 @@ fun CypherHomeScreen(
                     CypherScreen.TASKS
             }
 
+            CypherNotificationManager.SCREEN_CALENDAR -> {
+                currentScreen =
+                    CypherScreen.CALENDAR
+            }
+
+            CypherNotificationManager.SCREEN_WEATHER -> {
+                currentScreen =
+                    CypherScreen.WEATHER
+            }
+
             CypherNotificationManager.SCREEN_HOME -> {
                 currentScreen =
                     CypherScreen.HOME
@@ -229,6 +240,28 @@ fun CypherHomeScreen(
         mutableStateOf<String?>(
             null
         )
+    }
+
+
+    /*
+     * Keep Cypher's BOM weather-warning checker scheduled.
+     *
+     * The repeating alarm itself performs the network check in the
+     * background, so this startup call is quick and silent.
+     */
+    LaunchedEffect(
+        Unit
+    ) {
+
+        if (
+            !isPreview
+        ) {
+
+            CypherWeatherAlertScheduler(
+                context.applicationContext
+            )
+                .schedule()
+        }
     }
 
 

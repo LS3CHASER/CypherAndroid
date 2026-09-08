@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -35,9 +36,6 @@ class CypherNotificationManager(
             "cypher_weather"
 
 
-        /*
-         * Navigation extras.
-         */
         const val EXTRA_OPEN_SCREEN =
             "cypher_open_screen"
 
@@ -48,9 +46,6 @@ class CypherNotificationManager(
             "cypher_notification_calendar_event_id"
 
 
-        /*
-         * Cypher destinations.
-         */
         const val SCREEN_HOME =
             "home"
 
@@ -305,6 +300,7 @@ class CypherNotificationManager(
         notificationId: Int,
         title: String,
         message: String,
+        bomWarningUrl: String? = null,
     ) {
 
         val contentIntent =
@@ -317,7 +313,7 @@ class CypherNotificationManager(
             )
 
 
-        val notification =
+        val builder =
             NotificationCompat.Builder(
                 context,
                 CHANNEL_WEATHER,
@@ -331,6 +327,13 @@ class CypherNotificationManager(
                 .setContentText(
                     message
                 )
+                .setStyle(
+                    NotificationCompat
+                        .BigTextStyle()
+                        .bigText(
+                            message
+                        )
+                )
                 .setPriority(
                     NotificationCompat.PRIORITY_HIGH
                 )
@@ -340,7 +343,28 @@ class CypherNotificationManager(
                 .setAutoCancel(
                     true
                 )
-                .build()
+
+
+        bomWarningUrl
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?.let {
+                    url ->
+
+                builder
+                    .addAction(
+                        0,
+                        "VIEW BOM WARNING",
+                        createWebPendingIntent(
+                            notificationId =
+                                notificationId,
+
+                            url =
+                                url,
+                        ),
+                    )
+            }
 
 
         postNotification(
@@ -348,7 +372,7 @@ class CypherNotificationManager(
                 notificationId,
 
             notification =
-                notification,
+                builder.build(),
         )
     }
 
@@ -378,7 +402,8 @@ class CypherNotificationManager(
 
 
                 if (
-                    taskId > 0L
+                    taskId >
+                    0L
                 ) {
 
                     putExtra(
@@ -389,7 +414,8 @@ class CypherNotificationManager(
 
 
                 if (
-                    calendarEventId > 0L
+                    calendarEventId >
+                    0L
                 ) {
 
                     putExtra(
@@ -403,6 +429,32 @@ class CypherNotificationManager(
         return PendingIntent.getActivity(
             context,
             notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or
+                    PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+
+    private fun createWebPendingIntent(
+        notificationId: Int,
+        url: String,
+    ): PendingIntent {
+
+        val intent =
+            Intent(
+                Intent.ACTION_VIEW,
+                Uri.parse(
+                    url
+                ),
+            )
+
+
+        return PendingIntent.getActivity(
+            context,
+            notificationId xor
+                    0x5A17,
+
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or
                     PendingIntent.FLAG_IMMUTABLE,
