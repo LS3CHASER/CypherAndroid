@@ -5,15 +5,19 @@
 
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
 
     <application
         android:allowBackup="true"
@@ -26,44 +30,96 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Jarvis">
 
+
+        <!--
+            Cypher task reminder receiver.
+        -->
         <receiver
             android:name=".notifications.CypherTaskReminderReceiver"
             android:enabled="true"
             android:exported="false" />
 
+
+        <!--
+            Cypher calendar reminder receiver.
+        -->
         <receiver
             android:name=".notifications.CypherCalendarReminderReceiver"
             android:enabled="true"
             android:exported="false" />
 
+
+        <!--
+            Restores Calendar reminders plus Cypher alarms
+            and timers after the phone is restarted.
+        -->
         <receiver
             android:name=".notifications.CypherBootReceiver"
             android:enabled="true"
             android:exported="true">
 
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
+
+                <action
+                    android:name="android.intent.action.BOOT_COMPLETED" />
+
             </intent-filter>
 
         </receiver>
 
+
+        <!--
+            Fires scheduled Cypher alarms.
+        -->
+        <receiver
+            android:name=".alarm.CypherAlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+
+        <!--
+            Fires completed Cypher timers.
+        -->
+        <receiver
+            android:name=".alarm.CypherTimerReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+
+        <!--
+            BOM weather warning receiver.
+        -->
         <receiver
             android:name=".weather.alerts.CypherWeatherAlertReceiver"
             android:enabled="true"
             android:exported="false" />
 
+
+        <!--
+            Restores Cypher's BOM weather-warning monitoring
+            after reboot or an app update.
+        -->
         <receiver
             android:name=".weather.alerts.CypherWeatherAlertBootReceiver"
             android:enabled="true"
             android:exported="false">
 
             <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+
+                <action
+                    android:name="android.intent.action.BOOT_COMPLETED" />
+
+                <action
+                    android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+
             </intent-filter>
 
         </receiver>
 
+
+        <!--
+            Main Cypher activity.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -72,11 +128,17 @@
             android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+
+                <action
+                    android:name="android.intent.action.MAIN" />
+
+                <category
+                    android:name="android.intent.category.LAUNCHER" />
+
             </intent-filter>
 
         </activity>
+
 
     </application>
 

@@ -61,6 +61,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.shannon.cypher.R
+import com.shannon.cypher.alarm.CypherAlarm
+import com.shannon.cypher.alarm.CypherAlarmCommand
+import com.shannon.cypher.alarm.CypherAlarmCommandParser
+import com.shannon.cypher.alarm.CypherAlarmRepository
+import com.shannon.cypher.alarm.CypherAlarmScheduler
+import com.shannon.cypher.alarm.CypherTimer
 import com.shannon.cypher.audio.CypherRemoteSpeaker
 import com.shannon.cypher.audio.CypherSpeaker
 import com.shannon.cypher.audio.CypherSpeechRecognizer
@@ -78,6 +84,7 @@ import com.shannon.cypher.notifications.CypherCalendarReminderSync
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.calendar.CypherCalendarScreen
+import com.shannon.cypher.ui.alarm.CypherAlarmScreen
 import com.shannon.cypher.ui.tasks.CypherTaskScreen
 import com.shannon.cypher.ui.weather.CypherWeatherScreen
 import com.shannon.cypher.ui.theme.CypherTheme
@@ -182,6 +189,11 @@ fun CypherHomeScreen(
             CypherNotificationManager.SCREEN_WEATHER -> {
                 currentScreen =
                     CypherScreen.WEATHER
+            }
+
+            CypherNotificationManager.SCREEN_ALARMS -> {
+                currentScreen =
+                    CypherScreen.ALARMS
             }
 
             CypherNotificationManager.SCREEN_HOME -> {
@@ -357,6 +369,30 @@ fun CypherHomeScreen(
             } else {
                 CypherTaskRepository(
                     context
+                )
+            }
+        }
+
+
+    val alarmRepository =
+        remember {
+            if (isPreview) {
+                null
+            } else {
+                CypherAlarmRepository(
+                    context.applicationContext
+                )
+            }
+        }
+
+
+    val alarmScheduler =
+        remember {
+            if (isPreview) {
+                null
+            } else {
+                CypherAlarmScheduler(
+                    context.applicationContext
                 )
             }
         }
@@ -4360,6 +4396,650 @@ fun CypherHomeScreen(
     }
 
 
+    fun formatAlarmTimeForSpeech(
+        hour: Int,
+        minute: Int,
+    ): String {
+
+        val calendar =
+            Calendar.getInstance()
+                .apply {
+                    set(
+                        Calendar.HOUR_OF_DAY,
+                        hour,
+                    )
+
+                    set(
+                        Calendar.MINUTE,
+                        minute,
+                    )
+                }
+
+
+        return SimpleDateFormat(
+            "h:mm a",
+            Locale.getDefault(),
+        )
+            .format(
+                calendar.time
+            )
+    }
+
+
+    fun formatDurationForSpeech(
+        durationMillis: Long,
+    ): String {
+
+        val totalSeconds =
+            durationMillis
+                .coerceAtLeast(
+                    0L
+                ) /
+                    1000L
+
+
+        val hours =
+            totalSeconds /
+                    3600L
+
+
+        val minutes =
+            (
+                    totalSeconds %
+                            3600L
+                    ) /
+                    60L
+
+
+        val seconds =
+            totalSeconds %
+                    60L
+
+
+        val parts =
+            mutableListOf<String>()
+
+
+        if (
+            hours >
+            0L
+        ) {
+
+            parts.add(
+                if (
+                    hours ==
+                    1L
+                ) {
+
+                    "1 hour"
+
+                } else {
+
+                    "$hours hours"
+                }
+            )
+        }
+
+
+        if (
+            minutes >
+            0L
+        ) {
+
+            parts.add(
+                if (
+                    minutes ==
+                    1L
+                ) {
+
+                    "1 minute"
+
+                } else {
+
+                    "$minutes minutes"
+                }
+            )
+        }
+
+
+        if (
+            seconds >
+            0L ||
+            parts.isEmpty()
+        ) {
+
+            parts.add(
+                if (
+                    seconds ==
+                    1L
+                ) {
+
+                    "1 second"
+
+                } else {
+
+                    "$seconds seconds"
+                }
+            )
+        }
+
+
+        return when (
+            parts.size
+        ) {
+
+            1 ->
+                parts.first()
+
+            2 ->
+                "${parts[0]} and ${parts[1]}"
+
+            else ->
+                parts
+                    .dropLast(
+                        1
+                    )
+                    .joinToString(
+                        ", "
+                    ) +
+                        ", and ${parts.last()}"
+        }
+    }
+
+
+    fun formatAlarmRepeatForSpeech(
+        repeatDays: Set<Int>,
+    ): String {
+
+        if (
+            repeatDays.isEmpty()
+        ) {
+
+            return ""
+        }
+
+
+        val weekdays =
+            setOf(
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY,
+            )
+
+
+        val everyDay =
+            setOf(
+                Calendar.SUNDAY,
+                Calendar.MONDAY,
+                Calendar.TUESDAY,
+                Calendar.WEDNESDAY,
+                Calendar.THURSDAY,
+                Calendar.FRIDAY,
+                Calendar.SATURDAY,
+            )
+
+
+        if (
+            repeatDays ==
+            weekdays
+        ) {
+
+            return " every weekday"
+        }
+
+
+        if (
+            repeatDays ==
+            everyDay
+        ) {
+
+            return " every day"
+        }
+
+
+        val dayNames =
+            listOf(
+                Calendar.SUNDAY to "Sunday",
+                Calendar.MONDAY to "Monday",
+                Calendar.TUESDAY to "Tuesday",
+                Calendar.WEDNESDAY to "Wednesday",
+                Calendar.THURSDAY to "Thursday",
+                Calendar.FRIDAY to "Friday",
+                Calendar.SATURDAY to "Saturday",
+            )
+                .filter {
+                        (
+                            day,
+                            _,
+                        ) ->
+
+                    day in
+                            repeatDays
+                }
+                .map {
+                    it.second
+                }
+
+
+        return if (
+            dayNames.isEmpty()
+        ) {
+
+            ""
+
+        } else {
+
+            " every " +
+                    when (
+                        dayNames.size
+                    ) {
+
+                        1 ->
+                            dayNames.first()
+
+                        2 ->
+                            "${dayNames[0]} and ${dayNames[1]}"
+
+                        else ->
+                            dayNames
+                                .dropLast(
+                                    1
+                                )
+                                .joinToString(
+                                    ", "
+                                ) +
+                                    ", and ${dayNames.last()}"
+                    }
+        }
+    }
+
+
+    fun handleAlarmTimerCommand(
+        message: String,
+    ): Boolean {
+
+        val command =
+            CypherAlarmCommandParser.parse(
+                message
+            )
+                ?: return false
+
+
+        val repository =
+            alarmRepository
+
+
+        val scheduler =
+            alarmScheduler
+
+
+        if (
+            repository ==
+            null ||
+            scheduler ==
+            null
+        ) {
+
+            reply(
+                "Alarms and timers are unavailable."
+            )
+
+            return true
+        }
+
+
+        when (
+            command
+        ) {
+
+            is CypherAlarmCommand.CreateAlarm -> {
+
+                val alarm =
+                    CypherAlarm(
+                        id =
+                            System.currentTimeMillis(),
+
+                        hour =
+                            command.hour,
+
+                        minute =
+                            command.minute,
+
+                        label =
+                            command.label,
+
+                        repeatDays =
+                            command.repeatDays,
+
+                        enabled =
+                            true,
+                    )
+
+
+                repository.saveAlarm(
+                    alarm
+                )
+
+
+                scheduler.scheduleAlarm(
+                    alarm
+                )
+
+
+                val spokenTime =
+                    formatAlarmTimeForSpeech(
+                        hour =
+                            alarm.hour,
+
+                        minute =
+                            alarm.minute,
+                    )
+
+
+                val repeat =
+                    formatAlarmRepeatForSpeech(
+                        alarm.repeatDays
+                    )
+
+
+                reply(
+                    "Done. I've set ${alarm.label.lowercase(Locale.getDefault())} " +
+                            "for $spokenTime$repeat."
+                )
+            }
+
+
+            is CypherAlarmCommand.CreateTimer -> {
+
+                val now =
+                    System.currentTimeMillis()
+
+
+                val timer =
+                    CypherTimer(
+                        id =
+                            now,
+
+                        label =
+                            command.label,
+
+                        durationMillis =
+                            command.durationMillis,
+
+                        startedAtMillis =
+                            now,
+
+                        endsAtMillis =
+                            now +
+                                    command.durationMillis,
+
+                        active =
+                            true,
+                    )
+
+
+                repository.saveTimer(
+                    timer
+                )
+
+
+                scheduler.scheduleTimer(
+                    timer
+                )
+
+
+                reply(
+                    "Done. I've started ${timer.label.lowercase(Locale.getDefault())} " +
+                            "for ${formatDurationForSpeech(timer.durationMillis)}."
+                )
+            }
+
+
+            CypherAlarmCommand.ListAlarms -> {
+
+                val alarms =
+                    repository
+                        .getAlarms()
+                        .filter {
+                            it.enabled
+                        }
+                        .sortedWith(
+                            compareBy<CypherAlarm> {
+                                it.hour
+                            }
+                                .thenBy {
+                                    it.minute
+                                }
+                        )
+
+
+                if (
+                    alarms.isEmpty()
+                ) {
+
+                    reply(
+                        "You don't have any active alarms."
+                    )
+
+                } else {
+
+                    val description =
+                        alarms
+                            .take(
+                                8
+                            )
+                            .joinToString(
+                                "; "
+                            ) {
+                                    alarm ->
+
+                                val label =
+                                    alarm.label
+                                        .takeIf {
+                                            it.isNotBlank() &&
+                                                    !it.equals(
+                                                        "Alarm",
+                                                        ignoreCase =
+                                                            true,
+                                                    )
+                                        }
+                                        ?.let {
+                                            "$it at "
+                                        }
+                                        ?: ""
+
+
+                                "$label${
+                                    formatAlarmTimeForSpeech(
+                                        alarm.hour,
+                                        alarm.minute,
+                                    )
+                                }${
+                                    formatAlarmRepeatForSpeech(
+                                        alarm.repeatDays
+                                    )
+                                }"
+                            }
+
+
+                    val extra =
+                        if (
+                            alarms.size >
+                            8
+                        ) {
+
+                            " You also have ${alarms.size - 8} more."
+
+                        } else {
+
+                            ""
+                        }
+
+
+                    reply(
+                        "Your active alarms are: $description.$extra"
+                    )
+                }
+            }
+
+
+            CypherAlarmCommand.ListTimers -> {
+
+                val now =
+                    System.currentTimeMillis()
+
+
+                val timers =
+                    repository
+                        .getTimers()
+                        .filter {
+                            it.active &&
+                                    it.endsAtMillis >
+                                    now
+                        }
+                        .sortedBy {
+                            it.endsAtMillis
+                        }
+
+
+                if (
+                    timers.isEmpty()
+                ) {
+
+                    reply(
+                        "You don't have any active timers."
+                    )
+
+                } else {
+
+                    val description =
+                        timers
+                            .take(
+                                8
+                            )
+                            .joinToString(
+                                "; "
+                            ) {
+                                    timer ->
+
+                                val remaining =
+                                    (
+                                            timer.endsAtMillis -
+                                                    now
+                                            )
+                                        .coerceAtLeast(
+                                            0L
+                                        )
+
+
+                                "${timer.label}, " +
+                                        "${formatDurationForSpeech(remaining)} remaining"
+                            }
+
+
+                    reply(
+                        "Your active timers are: $description."
+                    )
+                }
+            }
+
+
+            CypherAlarmCommand.RemainingTimer -> {
+
+                val now =
+                    System.currentTimeMillis()
+
+
+                val timer =
+                    repository
+                        .getTimers()
+                        .filter {
+                            it.active &&
+                                    it.endsAtMillis >
+                                    now
+                        }
+                        .minByOrNull {
+                            it.endsAtMillis
+                        }
+
+
+                if (
+                    timer ==
+                    null
+                ) {
+
+                    reply(
+                        "You don't have an active timer."
+                    )
+
+                } else {
+
+                    val remaining =
+                        (
+                                timer.endsAtMillis -
+                                        now
+                                )
+                            .coerceAtLeast(
+                                0L
+                            )
+
+
+                    reply(
+                        "You have ${formatDurationForSpeech(remaining)} left " +
+                                "on ${timer.label.lowercase(Locale.getDefault())}."
+                    )
+                }
+            }
+
+
+            CypherAlarmCommand.CancelLatestTimer -> {
+
+                val timer =
+                    repository
+                        .getTimers()
+                        .filter {
+                            it.active
+                        }
+                        .maxByOrNull {
+                            it.startedAtMillis
+                        }
+
+
+                if (
+                    timer ==
+                    null
+                ) {
+
+                    reply(
+                        "You don't have an active timer to cancel."
+                    )
+
+                } else {
+
+                    scheduler.cancelTimer(
+                        timer.id
+                    )
+
+
+                    repository.markTimerInactive(
+                        timer.id
+                    )
+
+
+                    reply(
+                        "Done. I've cancelled ${timer.label.lowercase(Locale.getDefault())}."
+                    )
+                }
+            }
+        }
+
+
+        return true
+    }
+
+
     fun startListening() {
         recognizedText = ""
         cypherReply = ""
@@ -4523,6 +5203,15 @@ fun CypherHomeScreen(
 
                     isCalendarReadRequest(normalizedText) -> {
                         requestCalendarRead(normalizedText)
+                    }
+
+
+                    handleAlarmTimerCommand(
+                        normalizedText
+                    ) -> {
+                        /*
+                         * Handled locally by Cypher's Alarm / Timer engine.
+                         */
                     }
 
 
@@ -5788,6 +6477,79 @@ fun CypherHomeScreen(
                 }
             }
 
+
+
+            CypherScreen.ALARMS -> {
+
+                val repository =
+                    alarmRepository
+
+                val scheduler =
+                    alarmScheduler
+
+
+                if (
+                    repository != null &&
+                    scheduler != null
+                ) {
+
+                    CypherAlarmScreen(
+                        alarmRepository =
+                            repository,
+
+                        alarmScheduler =
+                            scheduler,
+
+                        isListening =
+                            isListening,
+
+                        isThinking =
+                            isThinking,
+
+                        isSpeaking =
+                            isSpeaking,
+
+                        onMenuClick = {
+
+                            isMenuOpen =
+                                true
+                        },
+
+                        onMicClick = {
+
+                            handleMicClick()
+                        },
+                    )
+
+                } else {
+
+                    Surface(
+                        modifier =
+                            Modifier.fillMaxSize(),
+
+                        color =
+                            background,
+                    ) {
+
+                        Box(
+                            modifier =
+                                Modifier.fillMaxSize(),
+
+                            contentAlignment =
+                                Alignment.Center,
+                        ) {
+
+                            Text(
+                                text =
+                                    "Alarms and timers are unavailable in preview mode.",
+
+                                color =
+                                    secondaryText,
+                            )
+                        }
+                    }
+                }
+            }
 
 
             CypherScreen.VOICE_LAB -> {

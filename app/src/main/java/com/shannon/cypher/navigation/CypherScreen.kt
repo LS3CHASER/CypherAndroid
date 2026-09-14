@@ -11,5 +11,7 @@ enum class CypherScreen {
 
     WEATHER,
 
+    ALARMS,
+
     VOICE_LAB,
 }

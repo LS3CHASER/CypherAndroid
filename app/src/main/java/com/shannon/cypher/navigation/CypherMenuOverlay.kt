@@ -324,6 +324,42 @@ fun CypherMenuOverlay(
 
             MenuItem(
                 title =
+                    "ALARMS & TIMERS",
+
+                selected =
+                    currentScreen ==
+                            CypherScreen.ALARMS,
+
+                accent =
+                    accent,
+
+                selectedAccent =
+                    secondaryAccent,
+
+                secondaryText =
+                    secondaryText,
+
+                onClick = {
+
+                    onScreenSelected(
+                        CypherScreen.ALARMS
+                    )
+
+                    onDismiss()
+                },
+            )
+
+
+            Spacer(
+                modifier =
+                    Modifier.size(
+                        12.dp
+                    )
+            )
+
+
+            MenuItem(
+                title =
                     "VOICE LAB",
 
                 selected =
