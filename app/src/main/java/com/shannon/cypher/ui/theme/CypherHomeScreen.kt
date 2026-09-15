@@ -4696,10 +4696,71 @@ fun CypherHomeScreen(
 
             is CypherAlarmCommand.CreateAlarm -> {
 
+                val repository =
+                    alarmRepository
+
+                val scheduler =
+                    alarmScheduler
+
+                if (
+                    repository == null ||
+                    scheduler == null
+                ) {
+                    reply(
+                        "Alarms are unavailable right now."
+                    )
+
+                    return true
+                }
+
+                val now =
+                    System.currentTimeMillis()
+
+                val oneOffDateMillis =
+                    if (
+                        command.tomorrow &&
+                        command.repeatDays.isEmpty()
+                    ) {
+                        java.util.Calendar
+                            .getInstance()
+                            .apply {
+                                timeInMillis =
+                                    now
+
+                                add(
+                                    java.util.Calendar.DAY_OF_YEAR,
+                                    1,
+                                )
+
+                                set(
+                                    java.util.Calendar.HOUR_OF_DAY,
+                                    command.hour,
+                                )
+
+                                set(
+                                    java.util.Calendar.MINUTE,
+                                    command.minute,
+                                )
+
+                                set(
+                                    java.util.Calendar.SECOND,
+                                    0,
+                                )
+
+                                set(
+                                    java.util.Calendar.MILLISECOND,
+                                    0,
+                                )
+                            }
+                            .timeInMillis
+                    } else {
+                        0L
+                    }
+
                 val alarm =
                     CypherAlarm(
                         id =
-                            System.currentTimeMillis(),
+                            now,
 
                         hour =
                             command.hour,
@@ -4715,39 +4776,284 @@ fun CypherHomeScreen(
 
                         enabled =
                             true,
-                    )
 
+                        oneOffDateMillis =
+                            oneOffDateMillis,
+                    )
 
                 repository.saveAlarm(
                     alarm
                 )
 
+                val triggerAt =
+                    scheduler.scheduleAlarm(
+                        alarm
+                    )
 
-                scheduler.scheduleAlarm(
-                    alarm
-                )
-
-
-                val spokenTime =
+                val timeText =
                     formatAlarmTimeForSpeech(
-                        hour =
-                            alarm.hour,
-
-                        minute =
-                            alarm.minute,
+                        command.hour,
+                        command.minute,
                     )
 
-
-                val repeat =
+                val repeatText =
                     formatAlarmRepeatForSpeech(
-                        alarm.repeatDays
+                        command.repeatDays
                     )
 
+                val dateText =
+                    if (
+                        command.tomorrow &&
+                        command.repeatDays.isEmpty()
+                    ) {
+                        " tomorrow"
+                    } else {
+                        ""
+                    }
+
+                if (
+                    triggerAt != null
+                ) {
+                    reply(
+                        if (
+                            repeatText.isBlank()
+                        ) {
+                            "Alarm set for $timeText$dateText."
+                        } else {
+                            "Alarm set for $timeText $repeatText."
+                        }
+                    )
+                } else {
+                    reply(
+                        "I couldn't schedule that alarm."
+                    )
+                }
+
+                return true
+            }
+
+
+            is CypherAlarmCommand.DeleteAlarm -> {
+
+                val repository =
+                    alarmRepository
+
+                val scheduler =
+                    alarmScheduler
+
+                if (
+                    repository == null ||
+                    scheduler == null
+                ) {
+                    reply(
+                        "Alarms are unavailable right now."
+                    )
+
+                    return true
+                }
+
+                val matches =
+                    repository.getAlarms()
+                        .filter { alarm ->
+                            command.hour == null ||
+                                    (
+                                            alarm.hour ==
+                                                    command.hour &&
+                                                    alarm.minute ==
+                                                    (
+                                                            command.minute
+                                                                ?: 0
+                                                            )
+                                            )
+                        }
+
+                if (
+                    matches.isEmpty()
+                ) {
+                    reply(
+                        "I couldn't find that alarm."
+                    )
+
+                    return true
+                }
+
+                matches.forEach { alarm ->
+                    scheduler.cancelAlarm(
+                        alarm.id
+                    )
+
+                    repository.deleteAlarm(
+                        alarm.id
+                    )
+                }
 
                 reply(
-                    "Done. I've set ${alarm.label.lowercase(Locale.getDefault())} " +
-                            "for $spokenTime$repeat."
+                    if (
+                        matches.size ==
+                        1
+                    ) {
+                        "Alarm deleted."
+                    } else {
+                        "${matches.size} alarms deleted."
+                    }
                 )
+
+                return true
+            }
+
+
+            is CypherAlarmCommand.DisableAlarm -> {
+
+                val repository =
+                    alarmRepository
+
+                val scheduler =
+                    alarmScheduler
+
+                if (
+                    repository == null ||
+                    scheduler == null
+                ) {
+                    reply(
+                        "Alarms are unavailable right now."
+                    )
+
+                    return true
+                }
+
+                val matches =
+                    repository.getAlarms()
+                        .filter { alarm ->
+                            alarm.enabled &&
+                                    (
+                                            command.hour == null ||
+                                                    (
+                                                            alarm.hour ==
+                                                                    command.hour &&
+                                                                    alarm.minute ==
+                                                                    (
+                                                                            command.minute
+                                                                                ?: 0
+                                                                            )
+                                                            )
+                                            )
+                        }
+
+                if (
+                    matches.isEmpty()
+                ) {
+                    reply(
+                        "I couldn't find an enabled alarm matching that."
+                    )
+
+                    return true
+                }
+
+                matches.forEach { alarm ->
+                    scheduler.cancelAlarm(
+                        alarm.id
+                    )
+
+                    repository.setAlarmEnabled(
+                        alarmId =
+                            alarm.id,
+                        enabled =
+                            false,
+                    )
+                }
+
+                reply(
+                    if (
+                        matches.size ==
+                        1
+                    ) {
+                        "Alarm turned off."
+                    } else {
+                        "${matches.size} alarms turned off."
+                    }
+                )
+
+                return true
+            }
+
+
+            is CypherAlarmCommand.EnableAlarm -> {
+
+                val repository =
+                    alarmRepository
+
+                val scheduler =
+                    alarmScheduler
+
+                if (
+                    repository == null ||
+                    scheduler == null
+                ) {
+                    reply(
+                        "Alarms are unavailable right now."
+                    )
+
+                    return true
+                }
+
+                val matches =
+                    repository.getAlarms()
+                        .filter { alarm ->
+                            !alarm.enabled &&
+                                    (
+                                            command.hour == null ||
+                                                    (
+                                                            alarm.hour ==
+                                                                    command.hour &&
+                                                                    alarm.minute ==
+                                                                    (
+                                                                            command.minute
+                                                                                ?: 0
+                                                                            )
+                                                            )
+                                            )
+                        }
+
+                if (
+                    matches.isEmpty()
+                ) {
+                    reply(
+                        "I couldn't find a disabled alarm matching that."
+                    )
+
+                    return true
+                }
+
+                matches.forEach { alarm ->
+                    val updated =
+                        repository.setAlarmEnabled(
+                            alarmId =
+                                alarm.id,
+                            enabled =
+                                true,
+                        )
+
+                    if (
+                        updated != null
+                    ) {
+                        scheduler.scheduleAlarm(
+                            updated
+                        )
+                    }
+                }
+
+                reply(
+                    if (
+                        matches.size ==
+                        1
+                    ) {
+                        "Alarm turned on."
+                    } else {
+                        "${matches.size} alarms turned on."
+                    }
+                )
+
+                return true
             }
 
 
@@ -5077,6 +5383,17 @@ fun CypherHomeScreen(
                         cancelDelete()
                     }
 
+                    handleAlarmTimerCommand(
+                        normalizedText
+                    ) -> {
+                        /*
+                         * Alarm / Timer commands deliberately run before
+                         * task and calendar parsing so phrases such as
+                         * "set an alarm for 9:30 PM" cannot be mistaken
+                         * for To-Do operations.
+                         */
+                    }
+
                     isNextAfterThatRequest(normalizedText) -> {
                         requestAppointmentAfterThat()
                     }
@@ -5203,15 +5520,6 @@ fun CypherHomeScreen(
 
                     isCalendarReadRequest(normalizedText) -> {
                         requestCalendarRead(normalizedText)
-                    }
-
-
-                    handleAlarmTimerCommand(
-                        normalizedText
-                    ) -> {
-                        /*
-                         * Handled locally by Cypher's Alarm / Timer engine.
-                         */
                     }
 
 

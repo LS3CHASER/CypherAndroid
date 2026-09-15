@@ -1,27 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
+    <!-- Voice -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Calendar -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
 
+    <!-- Notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Restore scheduled items after reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Exact alarms -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- Alarm / Timer full-screen ringing -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Foreground ringing services -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Alarm / Timer vibration -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Location / Weather -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-
     <application
         android:allowBackup="true"
-        android:usesCleartextTraffic="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -30,115 +44,132 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Jarvis">
 
+        <!-- ========================================================= -->
+        <!-- TASK REMINDERS                                            -->
+        <!-- ========================================================= -->
 
-        <!--
-            Cypher task reminder receiver.
-        -->
         <receiver
             android:name=".notifications.CypherTaskReminderReceiver"
-            android:enabled="true"
             android:exported="false" />
 
+        <!-- ========================================================= -->
+        <!-- CALENDAR REMINDERS                                        -->
+        <!-- ========================================================= -->
 
-        <!--
-            Cypher calendar reminder receiver.
-        -->
         <receiver
             android:name=".notifications.CypherCalendarReminderReceiver"
-            android:enabled="true"
             android:exported="false" />
 
+        <!-- ========================================================= -->
+        <!-- BOOT / RESCHEDULING                                       -->
+        <!-- ========================================================= -->
 
-        <!--
-            Restores Calendar reminders plus Cypher alarms
-            and timers after the phone is restarted.
-        -->
         <receiver
             android:name=".notifications.CypherBootReceiver"
             android:enabled="true"
             android:exported="true">
-
             <intent-filter>
-
-                <action
-                    android:name="android.intent.action.BOOT_COMPLETED" />
-
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
-
         </receiver>
 
+        <!-- ========================================================= -->
+        <!-- ALARM ENGINE                                              -->
+        <!-- ========================================================= -->
 
-        <!--
-            Fires scheduled Cypher alarms.
-        -->
         <receiver
             android:name=".alarm.CypherAlarmReceiver"
-            android:enabled="true"
             android:exported="false" />
 
+        <receiver
+            android:name=".alarm.CypherAlarmActionReceiver"
+            android:exported="false" />
 
         <!--
-            Fires completed Cypher timers.
+            Foreground service responsible for the actual alarm
+            ringtone and repeating vibration.
         -->
+        <service
+            android:name=".alarm.CypherAlarmRingingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!--
+            Full-screen Cypher alarm interface.
+            May appear over the lock screen and turn the display on.
+        -->
+        <activity
+            android:name=".alarm.CypherAlarmRingingActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- ========================================================= -->
+        <!-- TIMER ENGINE                                              -->
+        <!-- ========================================================= -->
+
         <receiver
             android:name=".alarm.CypherTimerReceiver"
-            android:enabled="true"
             android:exported="false" />
 
+        <receiver
+            android:name=".alarm.CypherTimerActionReceiver"
+            android:exported="false" />
 
         <!--
-            BOM weather warning receiver.
+            Foreground service responsible for timer-finished
+            sound and vibration.
         -->
+        <service
+            android:name=".alarm.CypherTimerRingingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!--
+            Full-screen TIMER FINISHED interface.
+        -->
+        <activity
+            android:name=".alarm.CypherTimerRingingActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
+        <!-- ========================================================= -->
+        <!-- BOM WEATHER ALERTS                                        -->
+        <!-- ========================================================= -->
+
         <receiver
             android:name=".weather.alerts.CypherWeatherAlertReceiver"
-            android:enabled="true"
             android:exported="false" />
 
-
-        <!--
-            Restores Cypher's BOM weather-warning monitoring
-            after reboot or an app update.
-        -->
         <receiver
             android:name=".weather.alerts.CypherWeatherAlertBootReceiver"
             android:enabled="true"
-            android:exported="false">
-
+            android:exported="true">
             <intent-filter>
-
-                <action
-                    android:name="android.intent.action.BOOT_COMPLETED" />
-
-                <action
-                    android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
-
         </receiver>
 
+        <!-- ========================================================= -->
+        <!-- MAIN CYPHER ACTIVITY                                      -->
+        <!-- ========================================================= -->
 
-        <!--
-            Main Cypher activity.
-        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
-            android:theme="@style/Theme.Jarvis"
-            android:windowSoftInputMode="adjustResize">
-
+            android:theme="@style/Theme.Jarvis">
             <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
 
-                <action
-                    android:name="android.intent.action.MAIN" />
-
-                <category
-                    android:name="android.intent.category.LAUNCHER" />
-
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
-
 
     </application>
 

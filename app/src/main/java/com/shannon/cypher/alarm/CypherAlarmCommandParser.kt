@@ -4,11 +4,13 @@ import java.util.Calendar
 import java.util.Locale
 
 sealed interface CypherAlarmCommand {
+
     data class CreateAlarm(
         val hour: Int,
         val minute: Int,
         val repeatDays: Set<Int>,
         val label: String,
+        val tomorrow: Boolean,
     ) : CypherAlarmCommand
 
     data class CreateTimer(
@@ -16,19 +18,58 @@ sealed interface CypherAlarmCommand {
         val label: String,
     ) : CypherAlarmCommand
 
-    data object ListAlarms : CypherAlarmCommand
-    data object ListTimers : CypherAlarmCommand
-    data object RemainingTimer : CypherAlarmCommand
-    data object CancelLatestTimer : CypherAlarmCommand
+    data class DeleteAlarm(
+        val hour: Int?,
+        val minute: Int?,
+    ) : CypherAlarmCommand
+
+    data class DisableAlarm(
+        val hour: Int?,
+        val minute: Int?,
+    ) : CypherAlarmCommand
+
+    data class EnableAlarm(
+        val hour: Int?,
+        val minute: Int?,
+    ) : CypherAlarmCommand
+
+    data object ListAlarms :
+        CypherAlarmCommand
+
+    data object ListTimers :
+        CypherAlarmCommand
+
+    data object RemainingTimer :
+        CypherAlarmCommand
+
+    data object CancelLatestTimer :
+        CypherAlarmCommand
 }
 
 object CypherAlarmCommandParser {
 
-    fun parse(message: String): CypherAlarmCommand? {
-        val lower = normalise(message)
+    fun parse(
+        message: String,
+    ): CypherAlarmCommand? {
+        val lower =
+            normalise(
+                message
+            )
 
-        parseTimerCreate(lower)?.let { return it }
-        parseAlarmCreate(lower)?.let { return it }
+        parseTimerCreate(lower)
+            ?.let {
+                return it
+            }
+
+        parseAlarmManagement(lower)
+            ?.let {
+                return it
+            }
+
+        parseAlarmCreate(lower)
+            ?.let {
+                return it
+            }
 
         if (
             listOf(
@@ -38,9 +79,12 @@ object CypherAlarmCommandParser {
                 "show my alarms",
                 "alarms do i have",
                 "alarms have i got",
-            ).any { it in lower }
+            ).any {
+                it in lower
+            }
         ) {
-            return CypherAlarmCommand.ListAlarms
+            return CypherAlarmCommand
+                .ListAlarms
         }
 
         if (
@@ -51,9 +95,12 @@ object CypherAlarmCommandParser {
                 "show my timers",
                 "timers do i have",
                 "timers have i got",
-            ).any { it in lower }
+            ).any {
+                it in lower
+            }
         ) {
-            return CypherAlarmCommand.ListTimers
+            return CypherAlarmCommand
+                .ListTimers
         }
 
         if (
@@ -64,16 +111,27 @@ object CypherAlarmCommandParser {
                             "remaining" in lower
                     )
         ) {
-            return CypherAlarmCommand.RemainingTimer
+            return CypherAlarmCommand
+                .RemainingTimer
         }
 
         if (
             "timer" in lower &&
-            listOf("cancel", "stop", "delete", "remove").any {
-                Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(lower)
+            listOf(
+                "cancel",
+                "stop",
+                "delete",
+                "remove",
+            ).any {
+                Regex(
+                    "\\b${Regex.escape(it)}\\b"
+                ).containsMatchIn(
+                    lower
+                )
             }
         ) {
-            return CypherAlarmCommand.CancelLatestTimer
+            return CypherAlarmCommand
+                .CancelLatestTimer
         }
 
         return null
@@ -82,103 +140,492 @@ object CypherAlarmCommandParser {
     private fun parseTimerCreate(
         message: String,
     ): CypherAlarmCommand.CreateTimer? {
-        if ("timer" !in message) return null
+        if (
+            "timer" !in
+            message
+        ) {
+            return null
+        }
 
         val creationWord =
-            listOf("set", "start", "create", "make").any {
-                Regex("\\b${Regex.escape(it)}\\b").containsMatchIn(message)
+            listOf(
+                "set",
+                "start",
+                "create",
+                "make",
+            ).any {
+                Regex(
+                    "\\b${Regex.escape(it)}\\b"
+                ).containsMatchIn(
+                    message
+                )
             }
 
-        if (!creationWord) return null
+        if (!creationWord) {
+            return null
+        }
 
         var totalMillis = 0L
 
-        Regex("\\b(\\d+)\\s*hours?\\b")
+        Regex(
+            "\\b(\\d+)\\s*hours?\\b"
+        )
             .find(message)
             ?.groupValues
             ?.getOrNull(1)
             ?.toLongOrNull()
-            ?.let { totalMillis += it * 60L * 60L * 1000L }
-
-        Regex("\\b(\\d+)\\s*minutes?\\b")
-            .find(message)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.let { totalMillis += it * 60L * 1000L }
-
-        Regex("\\b(\\d+)\\s*seconds?\\b")
-            .find(message)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.let { totalMillis += it * 1000L }
-
-        if (totalMillis <= 0L) {
-            parseSpokenDurationMillis(message)?.let {
-                totalMillis = it
+            ?.let {
+                totalMillis +=
+                    it *
+                            60L *
+                            60L *
+                            1000L
             }
+
+        Regex(
+            "\\b(\\d+)\\s*minutes?\\b"
+        )
+            .find(message)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?.let {
+                totalMillis +=
+                    it *
+                            60L *
+                            1000L
+            }
+
+        Regex(
+            "\\b(\\d+)\\s*seconds?\\b"
+        )
+            .find(message)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?.let {
+                totalMillis +=
+                    it *
+                            1000L
+            }
+
+        if (
+            totalMillis <=
+            0L
+        ) {
+            parseSpokenDurationMillis(
+                message
+            )
+                ?.let {
+                    totalMillis =
+                        it
+                }
         }
 
-        if (totalMillis <= 0L) return null
+        if (
+            totalMillis <=
+            0L
+        ) {
+            return null
+        }
 
-        return CypherAlarmCommand.CreateTimer(
-            durationMillis = totalMillis,
-            label = extractLabel(message, "Timer"),
-        )
+        return CypherAlarmCommand
+            .CreateTimer(
+                durationMillis =
+                    totalMillis,
+                label =
+                    extractLabel(
+                        message,
+                        "Timer",
+                    ),
+            )
+    }
+
+    private fun parseAlarmManagement(
+        message: String,
+    ): CypherAlarmCommand? {
+        if (
+            "alarm" !in message
+        ) {
+            return null
+        }
+
+        val time =
+            parseClockTime(
+                message
+            )
+
+        if (
+            listOf(
+                "delete",
+                "remove",
+            ).any {
+                Regex(
+                    "\\b$it\\b"
+                ).containsMatchIn(
+                    message
+                )
+            }
+        ) {
+            return CypherAlarmCommand
+                .DeleteAlarm(
+                    hour =
+                        time?.first,
+                    minute =
+                        time?.second,
+                )
+        }
+
+        if (
+            listOf(
+                "turn off",
+                "disable",
+                "switch off",
+            ).any {
+                it in message
+            }
+        ) {
+            return CypherAlarmCommand
+                .DisableAlarm(
+                    hour =
+                        time?.first,
+                    minute =
+                        time?.second,
+                )
+        }
+
+        if (
+            listOf(
+                "turn on",
+                "enable",
+                "switch on",
+            ).any {
+                it in message
+            }
+        ) {
+            return CypherAlarmCommand
+                .EnableAlarm(
+                    hour =
+                        time?.first,
+                    minute =
+                        time?.second,
+                )
+        }
+
+        return null
     }
 
     private fun parseAlarmCreate(
         message: String,
     ): CypherAlarmCommand.CreateAlarm? {
-        if ("alarm" !in message && "wake me" !in message) return null
+        if (
+            "alarm" !in message &&
+            "wake me" !in message
+        ) {
+            return null
+        }
 
         val creationWord =
-            listOf("set", "create", "make", "wake me").any { it in message }
+            listOf(
+                "set",
+                "create",
+                "make",
+                "wake me",
+            ).any {
+                it in message
+            }
 
-        if (!creationWord) return null
+        if (!creationWord) {
+            return null
+        }
 
-        val time = parseClockTime(message) ?: return null
+        val time =
+            parseClockTime(
+                message
+            ) ?: return null
 
-        return CypherAlarmCommand.CreateAlarm(
-            hour = time.first,
-            minute = time.second,
-            repeatDays = parseRepeatDays(message),
-            label = extractLabel(message, "Alarm"),
-        )
+        return CypherAlarmCommand
+            .CreateAlarm(
+                hour = time.first,
+                minute = time.second,
+                repeatDays =
+                    parseRepeatDays(
+                        message
+                    ),
+                label =
+                    extractLabel(
+                        message,
+                        "Alarm",
+                    ),
+                tomorrow =
+                    Regex(
+                        "\\btomorrow\\b"
+                    ).containsMatchIn(
+                        message
+                    ),
+            )
     }
 
     private fun parseClockTime(
         message: String,
     ): Pair<Int, Int>? {
-        val match =
+
+        /*
+         * Android speech recognition can return clock times in several
+         * equivalent forms:
+         *
+         * 9:30 pm
+         * 9.30 pm
+         * 9:30 p.m.
+         * 9 30 pm
+         * 930 pm
+         * 9 pm
+         *
+         * Accept all of them before allowing the command to fall through
+         * to Tasks / Calendar / CypherOS.
+         */
+        val speechFriendly =
+            message
+                .replace(
+                    Regex(
+                        "\\b([ap])\\s*\\.\\s*m\\s*\\.?\\b",
+                        RegexOption.IGNORE_CASE,
+                    )
+                ) {
+                    "${it.groupValues[1]}m"
+                }
+                .replace(
+                    Regex(
+                        "(?<=\\d)[.](?=\\d)"
+                    ),
+                    ":",
+                )
+
+        /*
+         * Standard separated time:
+         * 9:30 pm, 9 30 pm, 9 pm.
+         */
+        val explicitSeparated =
             Regex(
-                "\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\b",
+                "\\b(\\d{1,2})(?:(?::|\\s)(\\d{2}))?\\s*(am|pm)\\b",
                 RegexOption.IGNORE_CASE,
-            ).find(message)
-                ?: return null
+            ).find(
+                speechFriendly
+            )
 
-        val rawHour = match.groupValues[1].toIntOrNull() ?: return null
-        val minute = match.groupValues[2].ifBlank { "0" }.toIntOrNull() ?: return null
+        if (
+            explicitSeparated !=
+            null
+        ) {
+            return convertClockTime(
+                rawHour =
+                    explicitSeparated
+                        .groupValues[1]
+                        .toIntOrNull()
+                        ?: return null,
+                minute =
+                    explicitSeparated
+                        .groupValues[2]
+                        .ifBlank {
+                            "0"
+                        }
+                        .toIntOrNull()
+                        ?: return null,
+                period =
+                    explicitSeparated
+                        .groupValues[3],
+            )
+        }
 
-        if (rawHour !in 1..12 || minute !in 0..59) return null
+        /*
+         * Compact speech-recognition form:
+         * 930 pm, 0630 am, 1230 pm.
+         */
+        val explicitCompact =
+            Regex(
+                "\\b(\\d{3,4})\\s*(am|pm)\\b",
+                RegexOption.IGNORE_CASE,
+            ).find(
+                speechFriendly
+            )
 
-        val period = match.groupValues[3].lowercase(Locale.getDefault())
+        if (
+            explicitCompact !=
+            null
+        ) {
+            val digits =
+                explicitCompact
+                    .groupValues[1]
+
+            val rawHour =
+                digits
+                    .dropLast(2)
+                    .toIntOrNull()
+                    ?: return null
+
+            val minute =
+                digits
+                    .takeLast(2)
+                    .toIntOrNull()
+                    ?: return null
+
+            return convertClockTime(
+                rawHour =
+                    rawHour,
+                minute =
+                    minute,
+                period =
+                    explicitCompact
+                        .groupValues[2],
+            )
+        }
+
+        /*
+         * Natural phrases such as:
+         * "6:30 tomorrow morning"
+         * "6.30 tomorrow morning"
+         * "6 30 tomorrow morning"
+         * "7 tomorrow evening"
+         */
+        val dayPartMatch =
+            Regex(
+                "\\b(\\d{1,2})(?:(?::|\\s)(\\d{2}))?\\s+(?:tomorrow\\s+)?(morning|afternoon|evening|tonight)\\b",
+                RegexOption.IGNORE_CASE,
+            ).find(
+                speechFriendly
+            )
+
+        if (
+            dayPartMatch !=
+            null
+        ) {
+            val rawHour =
+                dayPartMatch
+                    .groupValues[1]
+                    .toIntOrNull()
+                    ?: return null
+
+            val minute =
+                dayPartMatch
+                    .groupValues[2]
+                    .ifBlank {
+                        "0"
+                    }
+                    .toIntOrNull()
+                    ?: return null
+
+            val part =
+                dayPartMatch
+                    .groupValues[3]
+                    .lowercase(
+                        Locale.getDefault()
+                    )
+
+            val period =
+                when (part) {
+                    "morning" -> "am"
+                    else -> "pm"
+                }
+
+            return convertClockTime(
+                rawHour =
+                    rawHour,
+                minute =
+                    minute,
+                period =
+                    period,
+            )
+        }
+
+        /*
+         * Also accept a 24-hour clock when speech recognition supplies
+         * one without AM/PM, for example "set an alarm for 21:30".
+         * Requiring a colon keeps this conservative so ordinary numbers
+         * elsewhere in the sentence are not mistaken for alarm times.
+         */
+        val twentyFourHour =
+            Regex(
+                "\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b"
+            ).find(
+                speechFriendly
+            )
+
+        if (
+            twentyFourHour !=
+            null
+        ) {
+            val hour =
+                twentyFourHour
+                    .groupValues[1]
+                    .toIntOrNull()
+                    ?: return null
+
+            val minute =
+                twentyFourHour
+                    .groupValues[2]
+                    .toIntOrNull()
+                    ?: return null
+
+            return Pair(
+                hour,
+                minute,
+            )
+        }
+
+        return null
+    }
+
+    private fun convertClockTime(
+        rawHour: Int,
+        minute: Int,
+        period: String,
+    ): Pair<Int, Int>? {
+        if (
+            rawHour !in
+            1..12 ||
+            minute !in
+            0..59
+        ) {
+            return null
+        }
+
+        val lowerPeriod =
+            period.lowercase(
+                Locale.getDefault()
+            )
 
         val hour =
             when {
-                period == "am" && rawHour == 12 -> 0
-                period == "pm" && rawHour != 12 -> rawHour + 12
-                else -> rawHour
+                lowerPeriod ==
+                        "am" &&
+                        rawHour ==
+                        12 ->
+                    0
+
+                lowerPeriod ==
+                        "pm" &&
+                        rawHour !=
+                        12 ->
+                    rawHour +
+                            12
+
+                else ->
+                    rawHour
             }
 
-        return Pair(hour, minute)
+        return Pair(
+            hour,
+            minute,
+        )
     }
 
     private fun parseRepeatDays(
         message: String,
     ): Set<Int> {
-        if ("every weekday" in message || "weekdays" in message) {
+        if (
+            "every weekday" in message ||
+            "weekdays" in message
+        ) {
             return setOf(
                 Calendar.MONDAY,
                 Calendar.TUESDAY,
@@ -188,7 +635,10 @@ object CypherAlarmCommandParser {
             )
         }
 
-        if ("every day" in message || "daily" in message) {
+        if (
+            "every day" in message ||
+            "daily" in message
+        ) {
             return setOf(
                 Calendar.SUNDAY,
                 Calendar.MONDAY,
@@ -200,7 +650,8 @@ object CypherAlarmCommandParser {
             )
         }
 
-        val days = linkedSetOf<Int>()
+        val days =
+            linkedSetOf<Int>()
 
         mapOf(
             "sunday" to Calendar.SUNDAY,
@@ -210,10 +661,15 @@ object CypherAlarmCommandParser {
             "thursday" to Calendar.THURSDAY,
             "friday" to Calendar.FRIDAY,
             "saturday" to Calendar.SATURDAY,
-        ).forEach { (name, day) ->
+        ).forEach {
+                (name, day) ->
+
             if (
-                Regex("\\b(?:every\\s+)?${Regex.escape(name)}\\b")
-                    .containsMatchIn(message)
+                Regex(
+                    "\\b(?:every\\s+)?${Regex.escape(name)}\\b"
+                ).containsMatchIn(
+                    message
+                )
             ) {
                 days.add(day)
             }
@@ -227,17 +683,25 @@ object CypherAlarmCommandParser {
         fallback: String,
     ): String {
         val label =
-            Regex("\\b(?:called|named|labelled|labeled)\\s+(.+)$")
+            Regex(
+                "\\b(?:called|named|labelled|labeled)\\s+(.+)$"
+            )
                 .find(message)
                 ?.groupValues
                 ?.getOrNull(1)
                 ?.trim()
 
         return label
-            ?.takeIf { it.isNotBlank() }
+            ?.takeIf {
+                it.isNotBlank()
+            }
             ?.replaceFirstChar {
-                if (it.isLowerCase()) {
-                    it.titlecase(Locale.getDefault())
+                if (
+                    it.isLowerCase()
+                ) {
+                    it.titlecase(
+                        Locale.getDefault()
+                    )
                 } else {
                     it.toString()
                 }
@@ -276,33 +740,54 @@ object CypherAlarmCommandParser {
                 "sixty" to 60L,
             )
 
-        for ((word, value) in numberWords) {
-            when {
-                Regex("\\b$word\\s+hours?\\b").containsMatchIn(message) ->
-                    return value * 60L * 60L * 1000L
+        val unitMatch =
+            Regex(
+                "\\b([a-z]+)\\s+(hours?|minutes?|seconds?)\\b"
+            ).find(message)
+                ?: return null
 
-                Regex("\\b$word\\s+minutes?\\b").containsMatchIn(message) ->
-                    return value * 60L * 1000L
+        val amount =
+            numberWords[
+                unitMatch.groupValues[1]
+            ] ?: return null
 
-                Regex("\\b$word\\s+seconds?\\b").containsMatchIn(message) ->
-                    return value * 1000L
-            }
+        return when {
+            unitMatch
+                .groupValues[2]
+                .startsWith(
+                    "hour"
+                ) ->
+                amount *
+                        60L *
+                        60L *
+                        1000L
+
+            unitMatch
+                .groupValues[2]
+                .startsWith(
+                    "minute"
+                ) ->
+                amount *
+                        60L *
+                        1000L
+
+            else ->
+                amount *
+                        1000L
         }
-
-        return null
     }
 
     private fun normalise(
         message: String,
     ): String {
         return message
-            .lowercase(Locale.getDefault())
-            .replace("a.m.", "am")
-            .replace("p.m.", "pm")
-            .replace("a.m", "am")
-            .replace("p.m", "pm")
-            .replace("a m", "am")
-            .replace("p m", "pm")
+            .lowercase(
+                Locale.getDefault()
+            )
+            .replace(
+                Regex("\\s+"),
+                " ",
+            )
             .trim()
     }
 }

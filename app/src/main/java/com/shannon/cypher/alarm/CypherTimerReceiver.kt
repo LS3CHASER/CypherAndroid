@@ -3,7 +3,7 @@ package com.shannon.cypher.alarm
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.shannon.cypher.notifications.CypherNotificationManager
+import androidx.core.content.ContextCompat
 
 class CypherTimerReceiver :
     BroadcastReceiver() {
@@ -18,28 +18,57 @@ class CypherTimerReceiver :
                 -1L,
             )
 
-        if (timerId <= 0L) return
-
-        val appContext = context.applicationContext
-        val repository = CypherAlarmRepository(appContext)
-        val timer = repository.getTimer(timerId) ?: return
-
-        if (!timer.active) return
-
-        repository.markTimerInactive(timer.id)
-
-        CypherNotificationManager(appContext).apply {
-            createNotificationChannels()
-
-            showTimerNotification(
-                notificationId = timerNotificationId(timer.id),
-                title = timer.label.ifBlank { "Cypher Timer" },
-                message = "Timer finished.",
-            )
+        if (
+            timerId <= 0L
+        ) {
+            return
         }
-    }
 
-    private fun timerNotificationId(timerId: Long): Int {
-        return (((timerId xor (timerId ushr 32)).toInt() xor 0x72520000) and 0x7fffffff)
+        val appContext =
+            context.applicationContext
+
+        val repository =
+            CypherAlarmRepository(
+                appContext
+            )
+
+        val timer =
+            repository.getTimer(
+                timerId
+            ) ?: return
+
+        if (
+            !timer.active
+        ) {
+            return
+        }
+
+        /*
+         * Mark it finished immediately so persistence and the
+         * Alarms & Timers screen remain correct even while the
+         * ringing UI is active.
+         */
+        repository.markTimerInactive(
+            timer.id
+        )
+
+        val serviceIntent =
+            Intent(
+                appContext,
+                CypherTimerRingingService::class.java,
+            ).apply {
+                action =
+                    CypherTimerRingingService.ACTION_START
+
+                putExtra(
+                    CypherTimerRingingService.EXTRA_TIMER_ID,
+                    timer.id,
+                )
+            }
+
+        ContextCompat.startForegroundService(
+            appContext,
+            serviceIntent,
+        )
     }
 }
