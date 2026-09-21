@@ -81,6 +81,7 @@ import com.shannon.cypher.network.CypherApiClient
 import com.shannon.cypher.notifications.CypherNotificationManager
 import com.shannon.cypher.notifications.CypherCalendarReminderScheduler
 import com.shannon.cypher.notifications.CypherCalendarReminderSync
+import com.shannon.cypher.personality.CypherResponseStyle
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.calendar.CypherCalendarScreen
@@ -524,8 +525,13 @@ fun CypherHomeScreen(
 
 
     fun reply(text: String) {
-        cypherReply = text
-        speakReply(text)
+        val styledReply =
+            CypherResponseStyle.styleLocalResponse(
+                text
+            )
+
+        cypherReply = styledReply
+        speakReply(styledReply)
     }
 
 
