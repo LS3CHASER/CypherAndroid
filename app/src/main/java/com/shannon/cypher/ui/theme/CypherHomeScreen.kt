@@ -82,6 +82,9 @@ import com.shannon.cypher.notifications.CypherNotificationManager
 import com.shannon.cypher.notifications.CypherCalendarReminderScheduler
 import com.shannon.cypher.notifications.CypherCalendarReminderSync
 import com.shannon.cypher.personality.CypherResponseStyle
+import com.shannon.cypher.personality.CypherPersonalityCommand
+import com.shannon.cypher.personality.CypherPersonalityCommandParser
+import com.shannon.cypher.personality.CypherPersonalityRepository
 import com.shannon.cypher.navigation.CypherScreen
 import com.shannon.cypher.ui.navigation.CypherMenuOverlay
 import com.shannon.cypher.ui.calendar.CypherCalendarScreen
@@ -127,6 +130,31 @@ fun CypherHomeScreen(
     val context = LocalContext.current
     val isPreview = LocalInspectionMode.current
     val coroutineScope = rememberCoroutineScope()
+
+    val personalityRepository =
+        remember {
+            if (isPreview) {
+                null
+            } else {
+                CypherPersonalityRepository(
+                    context.applicationContext
+                )
+            }
+        }
+
+    remember(
+        personalityRepository
+    ) {
+        personalityRepository
+            ?.getPersonalityLevel()
+            ?.let { savedLevel ->
+                CypherResponseStyle.setPersonalityLevel(
+                    savedLevel
+                )
+            }
+
+        true
+    }
 
     var isListening by remember { mutableStateOf(false) }
     var isThinking by remember { mutableStateOf(false) }
@@ -532,6 +560,81 @@ fun CypherHomeScreen(
 
         cypherReply = styledReply
         speakReply(styledReply)
+    }
+
+
+    /*
+     * AI personality layer for factual local-skill responses.
+     *
+     * Android remains authoritative for the facts. CypherOS is only
+     * allowed to change the spoken presentation around those facts.
+     *
+     * If CypherOS is unavailable, CypherApiClient returns the original
+     * facts and we fall back to the existing local response style.
+     */
+    fun replyWithAiPersonality(
+        skill: String,
+        intent: String,
+        facts: String,
+    ) {
+
+        val cleanFacts =
+            facts.trim()
+
+        if (
+            cleanFacts.isEmpty()
+        ) {
+
+            return
+        }
+
+
+        val personalityMode =
+            CypherResponseStyle
+                .personalityLevel
+                .name
+
+
+        coroutineScope.launch {
+
+            val aiReply =
+                withContext(
+                    Dispatchers.IO
+                ) {
+
+                    apiClient.styleResponse(
+                        skill = skill,
+                        intent = intent,
+                        facts = cleanFacts,
+                        personalityMode = personalityMode,
+                    )
+                }
+
+
+            val finalReply =
+                if (
+                    aiReply.isBlank() ||
+                    aiReply.trim() == cleanFacts
+                ) {
+
+                    CypherResponseStyle
+                        .styleLocalResponse(
+                            cleanFacts
+                        )
+
+                } else {
+
+                    aiReply.trim()
+                }
+
+
+            cypherReply =
+                finalReply
+
+            speakReply(
+                finalReply
+            )
+        }
     }
 
 
@@ -1778,8 +1881,22 @@ fun CypherHomeScreen(
 
 
     fun readCalendar(message: String) {
-        val events = getEventsForMessage(message)
-        reply(formatCalendarEvents(events, message))
+        val events =
+            getEventsForMessage(
+                message
+            )
+
+        val facts =
+            formatCalendarEvents(
+                events,
+                message,
+            )
+
+        replyWithAiPersonality(
+            skill = "CALENDAR",
+            intent = "READ_CALENDAR",
+            facts = facts,
+        )
     }
 
 
@@ -1802,13 +1919,30 @@ fun CypherHomeScreen(
         isFollowUp: Boolean,
     ) {
         if (event == null) {
-            reply(
-                if (isFollowUp) {
+
+            val facts =
+                if (
+                    isFollowUp
+                ) {
+
                     "You have no later appointments on your calendar."
+
                 } else {
+
                     "You have no upcoming appointments."
                 }
+
+            replyWithAiPersonality(
+                skill = "CALENDAR",
+                intent =
+                    if (isFollowUp) {
+                        "READ_NEXT_AFTER"
+                    } else {
+                        "READ_NEXT"
+                    },
+                facts = facts,
             )
+
             return
         }
 
@@ -1826,7 +1960,16 @@ fun CypherHomeScreen(
             "$prefix ${event.title} on $date at ${formatTime(event.startTimeMillis)}."
         }
 
-        reply(text)
+        replyWithAiPersonality(
+            skill = "CALENDAR",
+            intent =
+                if (isFollowUp) {
+                    "READ_NEXT_AFTER"
+                } else {
+                    "READ_NEXT"
+                },
+            facts = text,
+        )
     }
 
 
@@ -4662,6 +4805,85 @@ fun CypherHomeScreen(
     }
 
 
+    fun personalityLevelForSpeech(
+        level: CypherResponseStyle.PersonalityLevel,
+    ): String {
+        return when (level) {
+            CypherResponseStyle.PersonalityLevel.PROFESSIONAL ->
+                "Professional"
+
+            CypherResponseStyle.PersonalityLevel.BALANCED ->
+                "Balanced"
+
+            CypherResponseStyle.PersonalityLevel.WITTY ->
+                "Witty"
+
+            CypherResponseStyle.PersonalityLevel.MAXIMUM_CYPHER ->
+                "Maximum Cypher"
+        }
+    }
+
+
+    fun handlePersonalityCommand(
+        message: String,
+    ): Boolean {
+        val command =
+            CypherPersonalityCommandParser.parse(
+                message
+            )
+                ?: return false
+
+        when (command) {
+            CypherPersonalityCommand.GetLevel -> {
+                val currentLevel =
+                    CypherResponseStyle.personalityLevel
+
+                reply(
+                    "I'm currently using ${personalityLevelForSpeech(currentLevel)} mode."
+                )
+            }
+
+            is CypherPersonalityCommand.SetLevel -> {
+                val level =
+                    command.level
+
+                CypherResponseStyle.setPersonalityLevel(
+                    level
+                )
+
+                personalityRepository
+                    ?.setPersonalityLevel(
+                        level
+                    )
+
+                val confirmation =
+                    when (level) {
+                        CypherResponseStyle.PersonalityLevel.PROFESSIONAL ->
+                            "Professional mode enabled."
+
+                        CypherResponseStyle.PersonalityLevel.BALANCED ->
+                            "Balanced mode enabled. Back to the usual arrangement."
+
+                        CypherResponseStyle.PersonalityLevel.WITTY ->
+                            "Witty mode enabled. I'll allow myself a little more commentary."
+
+                        CypherResponseStyle.PersonalityLevel.MAXIMUM_CYPHER ->
+                            "Maximum Cypher it is. This was your decision. I'd like that noted."
+                    }
+
+                cypherReply =
+                    confirmation
+
+                speakReply(
+                    confirmation
+                )
+            }
+        }
+
+        return true
+    }
+
+
     fun handleAlarmTimerCommand(
         message: String,
     ): Boolean {
@@ -5387,6 +5609,14 @@ fun CypherHomeScreen(
 
                     pendingDeleteEvent != null && isDeleteCancellation(normalizedText) -> {
                         cancelDelete()
+                    }
+
+                    handlePersonalityCommand(
+                        normalizedText
+                    ) -> {
+                        /*
+                         * Personality commands run before normal skill parsers.
+                         */
                     }
 
                     handleAlarmTimerCommand(

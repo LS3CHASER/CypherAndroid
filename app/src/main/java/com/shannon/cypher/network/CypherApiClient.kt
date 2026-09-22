@@ -247,6 +247,209 @@ class CypherApiClient {
     }
 
 
+
+    fun styleResponse(
+        skill: String,
+        intent: String,
+        facts: String,
+        personalityMode: String,
+    ): String {
+
+        val cleanFacts =
+            facts.trim()
+
+
+        if (
+            cleanFacts.isEmpty()
+        ) {
+
+            return facts
+        }
+
+
+        val totalStart =
+            SystemClock.elapsedRealtime()
+
+
+        val url =
+            URL(
+                "$BASE_URL/style-response"
+            )
+
+
+        val connection =
+            url.openConnection()
+                    as HttpURLConnection
+
+
+        try {
+
+            connection.requestMethod =
+                "POST"
+
+            connection.connectTimeout =
+                10_000
+
+            connection.readTimeout =
+                30_000
+
+            connection.doOutput =
+                true
+
+            connection.useCaches =
+                false
+
+
+            connection.setRequestProperty(
+                "Content-Type",
+                "application/json",
+            )
+
+
+            connection.setRequestProperty(
+                "Accept",
+                "application/json",
+            )
+
+
+            val requestBody =
+                JSONObject()
+                    .put(
+                        "skill",
+                        skill,
+                    )
+                    .put(
+                        "intent",
+                        intent,
+                    )
+                    .put(
+                        "facts",
+                        cleanFacts,
+                    )
+                    .put(
+                        "personality_mode",
+                        personalityMode,
+                    )
+                    .toString()
+
+
+            val writeStart =
+                SystemClock.elapsedRealtime()
+
+
+            connection.outputStream.use {
+                    outputStream ->
+
+                outputStream.write(
+                    requestBody.toByteArray(
+                        Charsets.UTF_8
+                    )
+                )
+            }
+
+
+            val writeDone =
+                SystemClock.elapsedRealtime()
+
+
+            Log.d(
+                TAG,
+                "/style-response request body sent in " +
+                        "${writeDone - writeStart} ms " +
+                        "(skill=$skill, intent=$intent, " +
+                        "personality=$personalityMode)"
+            )
+
+
+            val responseWaitStart =
+                SystemClock.elapsedRealtime()
+
+
+            val responseCode =
+                connection.responseCode
+
+
+            val responseHeadersReady =
+                SystemClock.elapsedRealtime()
+
+
+            Log.d(
+                TAG,
+                "/style-response response headers received in " +
+                        "${responseHeadersReady - responseWaitStart} ms " +
+                        "(HTTP $responseCode)"
+            )
+
+
+            if (
+                responseCode !in
+                200..299
+            ) {
+
+                Log.w(
+                    TAG,
+                    "/style-response returned HTTP $responseCode. " +
+                            "Using original local response."
+                )
+
+                return cleanFacts
+            }
+
+
+            val responseText =
+                connection.inputStream
+                    .bufferedReader()
+                    .use {
+                        it.readText()
+                    }
+
+
+            val reply =
+                JSONObject(
+                    responseText
+                )
+                    .optString(
+                        "reply",
+                        cleanFacts,
+                    )
+                    .trim()
+                    .ifEmpty {
+                        cleanFacts
+                    }
+
+
+            Log.d(
+                TAG,
+                "/style-response total time: " +
+                        "${SystemClock.elapsedRealtime() - totalStart} ms"
+            )
+
+
+            return reply
+
+        } catch (
+            exception: Exception
+        ) {
+
+            Log.w(
+                TAG,
+                "/style-response failed after " +
+                        "${SystemClock.elapsedRealtime() - totalStart} ms. " +
+                        "Using original local response.",
+                exception,
+            )
+
+
+            return cleanFacts
+
+        } finally {
+
+            connection.disconnect()
+        }
+    }
+
+
+
     fun openSpeechStream(
         text: String,
     ): SpeechStream {
